@@ -1,0 +1,50 @@
+[project]
+name = "py-project-starter"
+version = "0.1.0"
+description = "A modern Python project starter template"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Configured for your root `project_name` package
+[tool.hatch.build.targets.wheel]
+packages = ["project_name"]
+
+# Development Dependencies (installed via `uv sync`)
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.3.0",
+]
+
+# Ruff Linter & Formatter Configuration
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort (import sorting)
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade (modernize syntax)
+]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# Pytest Configuration
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
