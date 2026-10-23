@@ -89,7 +89,7 @@ Before step 1 the script also:
 
 The script cannot do these:
 
-1. **Admin consent.** A tenant admin opens the consent URL printed by step 6 (also in [vpn-client-setup.md](vpn-client-setup.md)). Once per tenant.
+1. **Admin consent.** A tenant admin approves the Azure VPN Client app using the steps in [vpn-client-setup.md](vpn-client-setup.md#grant-admin-consent). Once per tenant. Step 6 reports whether it has been granted.
 2. **Add people** to `sg-<prefix>-admins` or `sg-<prefix>-developers`. See [rbac.md](rbac.md).
 3. **Sign out and back in** (`az login`, and the portal) so tokens include your new group memberships.
 4. **Generate the VPN profile** (admins only) and share it, then each user installs the client and connects. See [vpn-client-setup.md](vpn-client-setup.md).
@@ -145,6 +145,33 @@ nslookup <vault_name>.vault.azure.net     # expect a 10.0.1.x address
 
 Then open `https://ml.azure.com` and sign in.
 
+## Naming
+
+Every resource is named `<type>-<purpose>-<environment prefix>`, so the name alone says what it is. A short hash from the resource group ID is added only where Azure needs a globally unique name. Names are defined in one place, `infra/names.bicep`. Examples use the prefix `aisandbox`.
+
+| Resource | Pattern | Example |
+|---|---|---|
+| Virtual network | `vnet-<prefix>` | `vnet-aisandbox` |
+| Data Lake storage | `stlake<prefix><hash>` | `stlakeaisandbox...` |
+| ML workspace storage (also holds the Function deployment package) | `stmlws<prefix><hash>` | `stmlwsaisandbox...` |
+| Key Vault for the ML workspace | `kv-ml-<prefix>-<hash>` | `kv-ml-aisandbox-...` |
+| Key Vault for application and team secrets | `kv-app-<prefix>-<hash>` | `kv-app-aisandbox-...` |
+| Container Registry | `acr<prefix><hash>` | `acraisandbox...` |
+| AI Search | `srch-<prefix>-<hash>` | `srch-aisandbox-...` |
+| AI Foundry (AI Services) | `foundry-<prefix>-<hash>` | `foundry-aisandbox-...` |
+| Azure ML workspace | `mlw-<prefix>` | `mlw-aisandbox` |
+| Function App plan | `plan-func-<prefix>` | `plan-func-aisandbox` |
+| Function App | `func-<prefix>-<hash>` | `func-aisandbox-...` |
+| Log Analytics, Application Insights | `log-<prefix>`, `appi-<prefix>` | `log-aisandbox` |
+| DNS Private Resolver | `dnspr-<prefix>` | `dnspr-aisandbox` |
+| VPN Gateway and its public IP | `vpng-<prefix>`, `pip-vpng-<prefix>` | `vpng-aisandbox` |
+| Private endpoints | `pe-<resource name>[-<sub-resource>]` | `pe-kv-app-aisandbox-...` |
+| Entra groups | `sg-<prefix>-admins`, `sg-<prefix>-developers` | `sg-aisandbox-admins` |
+
+Storage account and registry names cannot contain hyphens, so the prefix is used without them.
+
+**Environments deployed before this convention** used `kv-<prefix>-...` and `kva-<prefix>-...` for the Key Vaults, `stml<prefix>...` for the ML storage, `ais-<prefix>-...` for AI Foundry and `plan-<prefix>` for the plan. Azure cannot rename these resources, and the ML workspace cannot switch Key Vault, so rerunning steps 2, 3 or 5 there would create duplicates. The deploy script refuses to do so: it marks resource groups created with the new names by a `naming=v2` tag, and stops steps 2, 3 and 5 on any resource group that has resources but no tag. Steps 1, 4 and 6 are unaffected. To adopt the new names, deploy to a new resource group (set a new `RESOURCE_GROUP_NAME`, and a new `ENVIRONMENT_NAME` if the old vaults are still soft-deleted) and tear the old one down.
+
 ## Cost
 
 These resources bill continuously while they exist, whether or not they are used:
@@ -189,6 +216,8 @@ Flex Consumption bills only for execution. Azure ML and AI Services bill on usag
 | `AuthorizationFailed` creating role assignments | The identity running the script needs Owner or User Access Administrator. |
 | Quota or capacity error for the gateway, Flex Consumption or AI Services | Request quota or choose another region in `AZURE_LOCATION`. |
 | Key Vault name conflict or vault shows as deleted | A soft-deleted vault holds the name. See Tear down. |
+| `was deployed with the previous resource names` | The resource group predates the current naming convention. See [Naming](#naming). |
+| In Azure ML studio, Notebooks, the VS Code option is greyed out | It needs a running compute instance, and none is deployed. In studio go to Manage, Compute, Compute instances, New, wait for Running, then select it in Notebooks. Requires the VPN and the admins or developers group (AzureML Compute Operator). Quota and first-time managed network setup in your region were not tested. |
 | `-ValidateOnly` fails on step 2 or later on a fresh subscription | Expected. Those steps need earlier resources to exist. Deploy step by step. |
 | Step 4 appears stuck | The VPN Gateway takes 30 to 45 minutes. |
 | `az ... --query` fails with `was unexpected at this time` | Quoting problem in Windows PowerShell when a query contains parentheses. Use the commands in this guide, or filter in PowerShell. |
@@ -198,7 +227,7 @@ Flex Consumption bills only for execution. Azure ML and AI Services bill on usag
 - **Verified by checks, not by users.** The deployed configuration was verified with the Azure CLI checks above and with ARM validation of every step. A live VPN connection, private name resolution from a client, and access as a group member were not exercised by the author. Run the checks in [vpn-client-setup.md](vpn-client-setup.md) after your first connection.
 - **One region deployed.** The templates were deployed to `uksouth` only. A clean deployment from an empty subscription was not exercised, because the steps were run incrementally.
 - **Guest accounts.** The deploying account in the reference environment is an external (B2B guest) account. Entra sign-in to the VPN is expected to work for guests once admin consent is granted, but this was not verified. If sign-in fails for a guest, test with a member account.
-- **No workloads.** There is no function code, ML compute, model deployment or Foundry project. See [architecture.md](architecture.md#not-included).
+- **No workloads.** There is no function code, ML compute instance or cluster, model deployment or Foundry project. Notebook and VS Code features in Azure ML studio need a compute instance that you create. See [architecture.md](architecture.md#not-included).
 - **No service-to-service private connectivity.** See [architecture.md](architecture.md).
 - **Application Insights** accepts public ingestion.
 - **Windows only.** The script and commands target Windows PowerShell 5.1.

@@ -71,7 +71,7 @@ The VNet address space is `10.0.0.0/16`. The resolver inbound endpoint uses the 
 - **Extra DNS zones.** `privatelink.notebooks.azure.net` (ML notebooks) and `privatelink.file.core.windows.net` (ML storage file share) are required by Azure ML and were added to the list in the brief.
 - **Azure ML network mode.** The workspace uses a managed network in `AllowInternetOutbound` mode. Public access to the workspace itself is disabled.
 - **Resolver as VNet DNS.** The DNS Private Resolver inbound endpoint is a static address and is also set as the VNet DNS server, so VPN clients receive it in their profile. Step 4 deploys step 1 a second time to set it.
-- **Names.** Resource names include a suffix derived from the resource group ID, so they are stable across redeployments and unique across Azure. See `infra/names.bicep`.
+- **Names.** Every name follows `<type>-<purpose>-<prefix>`, with a hash suffix derived from the resource group ID only where Azure needs a globally unique name. They are stable across redeployments. See [deployment.md](deployment.md#naming) and `infra/names.bicep`.
 - **Subscription-added resources.** Empty network security groups on three subnets and Event Grid system topics on the storage accounts appear in the resource group. They are added by the subscription, not by these templates, and have no custom rules.
 
 ## Security baseline

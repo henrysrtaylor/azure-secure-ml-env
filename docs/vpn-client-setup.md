@@ -6,18 +6,52 @@ Values in angle brackets come from your `.env` or the step 6 output (`./scripts/
 
 ## Prerequisites
 
-1. A tenant admin has granted consent for the Azure VPN Client app (one time per tenant, not per user):
-   `https://login.microsoftonline.com/<tenant_id>/adminconsent?client_id=c632b3df-fb67-4d84-bdcf-b95ad541b5c8`
-   This needs a Global Administrator, Privileged Role Administrator, or Cloud Application Administrator. Without it, VPN sign-in fails with a message that admin approval is required.
+1. A tenant admin has granted consent for the Azure VPN Client app (one time per tenant, not per user). See [Grant admin consent](#grant-admin-consent) below. Without it, VPN sign-in fails with a message that admin approval is required.
 2. Your Microsoft Entra account (member or B2B guest) is in the tenant. Your device does not need to be domain joined.
 3. Admin access on your machine to install the VPN client.
 4. Membership in one of the environment's groups, otherwise you can connect but are not authorized on any service. See [rbac.md](rbac.md). After being added, sign out and back in (`az login`, and the portal) so your token includes the new group. Connecting to the VPN itself does not depend on the groups.
+
+## Grant admin consent
+
+The VPN Gateway accepts sign-ins for the Azure VPN Client app (`c632b3df-fb67-4d84-bdcf-b95ad541b5c8`, public cloud). A tenant admin must approve that app once for the whole tenant. This needs a Global Administrator, Privileged Role Administrator, or Cloud Application Administrator **in the tenant that hosts the environment**. A guest account without one of these roles cannot grant it.
+
+1. Sign in to a browser as that admin. Use a private window if your browser is signed in to another account.
+2. Open this URL, replacing `<tenant_id>` (it is the `AZURE_TENANT_ID` in `.env`):
+
+   ```text
+   https://login.microsoftonline.com/<tenant_id>/oauth2/authorize?client_id=c632b3df-fb67-4d84-bdcf-b95ad541b5c8&response_type=code&redirect_uri=https://portal.azure.com&nonce=1234&prompt=admin_consent
+   ```
+
+3. Select **Accept** on the consent page. The browser then lands on the Azure portal.
+
+Do not use the `.../adminconsent?client_id=...` form of the URL. It redirects to `localhost` when it finishes, and the browser shows "localhost refused to connect" whether or not consent was granted.
+
+If the URL does not work, an admin can approve the app in the Entra admin center instead: **Enterprise applications**, search for **Azure VPN**, open it, then **Permissions** and **Grant admin consent**. If the app is not listed, sign in once to the URL above so the app is added to the tenant.
+
+Check that consent took effect. This prints a line when the app exists in the tenant and nothing when it does not:
+
+```powershell
+az ad sp list --filter "appId eq 'c632b3df-fb67-4d84-bdcf-b95ad541b5c8'" --query "[].displayName" -o tsv
+```
+
+Step 6 of the deploy script runs this check too.
+
+### If you are not an admin
+
+1. **Try connecting first.** Importing the profile and signing in is the real test. If the tenant allows users to consent to this app, sign-in works after a consent prompt and nothing more is needed.
+2. **If sign-in says admin approval is required,** ask someone with one of the roles above in that tenant to open the URL in step 2 of the previous section and select **Accept**. Send them this:
+
+   > Please approve the Microsoft app "Azure VPN Client" (app ID `c632b3df-fb67-4d84-bdcf-b95ad541b5c8`) for our tenant `<tenant_id>`, by opening the consent URL in docs/vpn-client-setup.md and selecting Accept. It is a Microsoft app used for VPN sign-in, and it needs only the sign-in and basic profile permissions.
+
+3. **Check the result** with the `az ad sp list` command above. The check reads the tenant directory, which most accounts, including guests, can do. An empty result means the app has not been added to the tenant yet. It does not by itself prove sign-in will fail, because user consent can add the app at first sign-in.
+
+The environment's Azure subscription and the Entra tenant are linked, so approval has to happen in that tenant. It cannot be done from another tenant.
 
 ## Apps to install
 
 | App | Needed for | Where |
 |---|---|---|
-| Azure VPN Client | Connecting (required) | Windows: Microsoft Store. macOS: App Store. Linux (Ubuntu): [Microsoft documentation](https://learn.microsoft.com/azure/vpn-gateway/point-to-site-entra-gateway) |
+| Azure VPN Client | Connecting (required) | Windows: [Microsoft Store](https://go.microsoft.com/fwlink/?linkid=2117554). macOS: [App Store](https://apps.apple.com/us/app/azure-vpn-client/id1553936137). Linux is not supported, see Notes. |
 | Azure CLI | Downloading the VPN profile, managing resources | [Install guide](https://learn.microsoft.com/cli/azure/install-azure-cli) |
 | A modern browser | Azure Portal, Azure ML studio (`ml.azure.com`), Foundry (`ai.azure.com`) | Edge or Chrome |
 | VS Code (optional) | Working with ML, Functions and Bicep | [code.visualstudio.com](https://code.visualstudio.com) |
@@ -39,13 +73,15 @@ Regenerate and re-import the profile whenever the VNet DNS server or gateway set
 
 ## Install and connect (Windows)
 
-1. Install **Azure VPN Client** from the Microsoft Store.
+1. Install **Azure VPN Client** from the [Microsoft Store](https://go.microsoft.com/fwlink/?linkid=2117554). Other ways to install on Windows:
+   - Installer download: <https://aka.ms/azvpnclientdownload>
+   - WinGet: `winget install Microsoft.AzureVPNClient --source winget`
 2. Open it, select **+** (bottom left), then **Import**.
 3. Choose `azurevpnconfig.xml` and select **Save**.
 4. Select the connection and choose **Connect**.
 5. Sign in with your Entra account when prompted.
 
-macOS follows the same steps with the App Store client. On Linux, use the Azure VPN Client package and import the same file.
+macOS follows the same steps with the [App Store client](https://apps.apple.com/us/app/azure-vpn-client/id1553936137): select **Import**, choose `azurevpnconfig.xml`, select **Save**, then **Connect**.
 
 ## Verify
 
@@ -61,7 +97,8 @@ Then open `https://ml.azure.com` or `https://portal.azure.com` and browse to the
 
 | Symptom | Fix |
 |---|---|
-| Sign-in loop or consent error | Admin consent for the Azure VPN Client app is missing |
+| Sign-in loop or consent error | Admin consent for the Azure VPN Client app is missing. See [Grant admin consent](#grant-admin-consent) |
+| "localhost refused to connect" after opening the consent URL | You used the `adminconsent` URL, which redirects to `localhost`. Use the `oauth2/authorize` URL in [Grant admin consent](#grant-admin-consent) and check with `az ad sp list` |
 | Connected but names resolve to public IPs | Re-import a freshly generated profile. Turn off browser "secure DNS" (DNS over HTTPS) overrides. |
 | `403` from a service even though it resolves privately | You need group membership or roles. See [rbac.md](rbac.md). |
 | Portal data views fail | Portal data views call the service from your browser, so the VPN must be connected |
@@ -72,4 +109,6 @@ Then open `https://ml.azure.com` or `https://portal.azure.com` and browse to the
 
 - **Guests:** external (B2B guest) accounts can be used, but guest sign-in to the VPN was not verified. See the troubleshooting table.
 - **Verification:** the author verified the gateway configuration with the Azure CLI, not a live client connection. Treat your first connection and the `nslookup` check above as the acceptance test.
-- **Linux:** the Azure VPN Client for Linux supports Entra ID sign-in on supported Ubuntu versions. See the Microsoft documentation linked above for the current list.
+- **Linux is not supported.** The Azure VPN Client for Linux was retired on 31 August 2026, and the OpenVPN and strongSwan clients do not support Microsoft Entra ID sign-in with this gateway. Linux users need a Windows or macOS machine, such as a virtual machine or remote desktop.
+- **Supported platforms:** Windows 11 (x64, x86, ARM64) and macOS 12 to 15 (x64, Arm64). The macOS client is not available in France and China.
+- **Permissions on Windows:** the Azure VPN Client must be allowed to run in the background. In the client, **... > Prerequisites > Run Prerequisites Test** reports anything missing.

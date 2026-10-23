@@ -84,6 +84,22 @@ elseif ($changesAzure -and -not (Invoke-Az group exists -n $rg | ConvertFrom-Jso
     Invoke-Az group create -n $rg -l $loc -o none
 }
 
+# Resource names changed (purpose-based names). Environments deployed before that must not rerun steps 2, 3 or 5.
+if ($changesAzure) {
+    $existing = @((Invoke-Az resource list -g $rg --query "[].name" -o json | Out-String) | ConvertFrom-Json)
+    $rgTags = (Invoke-Az group show -n $rg --query tags -o json | Out-String) | ConvertFrom-Json
+    $namingCurrent = ($rgTags -and $rgTags.naming -eq 'v2')
+    if ($existing.Count -eq 0) {
+        $namingCurrent = $true
+        if (-not $ValidateOnly) {
+            Invoke-Az tag update --resource-id "/subscriptions/$sub/resourceGroups/$rg" --operation merge --tags naming=v2 -o none
+        }
+    }
+    if (-not $namingCurrent -and @($Step | Where-Object { $_ -in 2, 3, 5 }).Count -gt 0) {
+        throw "Resource group $rg was deployed with the previous resource names. Steps 2, 3 and 5 would create duplicate resources under the new names. Use -Step 1,4,6 here, or deploy to a new resource group (see docs/deployment.md, Naming)."
+    }
+}
+
 $base = @("prefix=$prefix", "location=$loc")
 $net = @(
     "vnetAddressSpace=$($cfg.VNET_ADDRESS_SPACE)",
@@ -140,5 +156,8 @@ if ($Step -contains 6 -and -not $ValidateOnly) {
     Write-Host "DNS server:     $resolverIp (resolver inbound endpoint)"
     $url = Invoke-Az network vnet-gateway vpn-client generate -g $rg -n $gw -o tsv
     Write-Host "Profile zip:    $url  (AzureVPN\azurevpnconfig.xml, import into Azure VPN Client)"
-    Write-Host "Admin consent:  https://login.microsoftonline.com/$($cfg.AZURE_TENANT_ID)/adminconsent?client_id=$($cfg.VPN_AAD_AUDIENCE)"
+    $consent = (Invoke-Az ad sp list --filter "appId eq '$($cfg.VPN_AAD_AUDIENCE)'" -o json | Out-String) | ConvertFrom-Json
+    $consentState = if (@($consent).Count -gt 0) { 'granted (app exists in the tenant)' } else { 'app not in the tenant yet (an admin must approve it, or user consent may add it at first sign-in)' }
+    Write-Host "Admin consent:  $consentState"
+    Write-Host "Consent URL:    https://login.microsoftonline.com/$($cfg.AZURE_TENANT_ID)/oauth2/authorize?client_id=$($cfg.VPN_AAD_AUDIENCE)&response_type=code&redirect_uri=https://portal.azure.com&nonce=1234&prompt=admin_consent"
 }

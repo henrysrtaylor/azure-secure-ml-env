@@ -12,17 +12,16 @@ A Bicep-based, private-only Azure environment for an AI engineering team. All Pa
 - `infra/05-rbac.bicep`: Tiered roles (admin, developer) for Entra groups on each resource. Key authentication is disabled, so RBAC is required.
 - `infra/modules/private-endpoint.bicep`: Reusable private endpoint with DNS zone group.
 - `scripts/deploy.ps1`: Builds, validates, and deploys the steps in order, then prints portal links, private endpoint IPs, and VPN client profile details.
-- `.env`: Local deployment values (subscription, tenant, location, prefix, network ranges, optional existing RBAC group IDs). Do not commit it to Git.
 - `.env.example`: Template for `.env`.
 
-## � Documentation
+## 📚 Documentation
 
 - [docs/deployment.md](docs/deployment.md): requirements, `.env` reference, running and verifying the deployment, cost, tear down, troubleshooting, known limitations.
 - [docs/architecture.md](docs/architecture.md): what is deployed and why.
 - [docs/rbac.md](docs/rbac.md): groups, roles, adding and removing people.
 - [docs/vpn-client-setup.md](docs/vpn-client-setup.md): installing the VPN client and connecting.
 
-## �📈 Future Roadmap
+## 📈 Future Roadmap
 
 - Azure OpenAI model deployments and Foundry projects.
 - Service-to-service private connectivity (for example Search to the Data Lake).
@@ -89,7 +88,7 @@ See [docs/vpn-client-setup.md](docs/vpn-client-setup.md) for installing the VPN 
 1. Install the Azure CLI and Bicep, then sign in with `az login`.
 2. Copy `.env.example` to `.env` and fill in your values.
 3. Run `./scripts/deploy.ps1` to deploy everything (about 45 minutes, mostly the VPN Gateway).
-4. Have a tenant admin grant consent for the Azure VPN Client app (the URL is printed by the script).
+4. Have a tenant admin grant consent for the Azure VPN Client app (see [docs/vpn-client-setup.md](docs/vpn-client-setup.md#grant-admin-consent)).
 5. Add users to the Entra groups. See [docs/rbac.md](docs/rbac.md).
 6. An admin generates the VPN profile and shares it. Each user installs the Azure VPN Client, imports the profile, and connects.
 7. Verify that a private name resolves to a `10.0.1.x` address and that the Azure ML studio opens.
@@ -133,7 +132,7 @@ Deploy selected steps only. Step 5 grants RBAC and step 6 prints the summary:
 
 Step 5 creates two Entra groups (`sg-<prefix>-admins` and `sg-<prefix>-developers`) if they don't exist, adds you to both, and assigns roles to them. Add people to a group to give them access, with no redeploy. To use existing groups, set the `RBAC_*_GROUP_ID` values in `.env`. The deploying identity needs Owner or User Access Administrator. See [docs/rbac.md](docs/rbac.md).
 
-After step 4, grant admin consent for the Azure VPN Client app (the URL is printed by step 6), import `azurevpnconfig.xml` from the generated profile zip into the Azure VPN Client, and connect. Private names then resolve through the resolver at `10.0.3.4`. See [docs/vpn-client-setup.md](docs/vpn-client-setup.md) and [docs/architecture.md](docs/architecture.md).
+After step 4, grant admin consent for the Azure VPN Client app (see [docs/vpn-client-setup.md](docs/vpn-client-setup.md#grant-admin-consent); step 6 reports whether it is granted), import `azurevpnconfig.xml` from the generated profile zip into the Azure VPN Client, and connect. Private names then resolve through the resolver at `10.0.3.4`. See [docs/vpn-client-setup.md](docs/vpn-client-setup.md) and [docs/architecture.md](docs/architecture.md).
 
 ## 🤝 Contributing
 

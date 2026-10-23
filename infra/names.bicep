@@ -16,6 +16,7 @@ var privateDnsZones = {
   sites: 'privatelink.azurewebsites.net'
 }
 
+// Convention: <type>-<purpose>-<env prefix>[-<hash>]. The hash is only added where Azure needs a globally unique name.
 @export()
 func resourceNames(prefix string, seed string) object => {
   vnet: 'vnet-${prefix}'
@@ -24,16 +25,16 @@ func resourceNames(prefix string, seed string) object => {
   dnsInboundSubnet: 'dns-inbound-subnet'
   funcSubnet: 'func-integration-subnet'
   lakeStorage: take('stlake${replace(toLower(prefix), '-', '')}${uniqueString(seed)}', 24)
-  mlStorage: take('stml${replace(toLower(prefix), '-', '')}${uniqueString(seed)}', 24)
-  keyVault: take('kv-${prefix}-${uniqueString(seed)}', 24)
-  appKeyVault: take('kva-${prefix}-${uniqueString(seed)}', 24)
+  mlStorage: take('stmlws${replace(toLower(prefix), '-', '')}${uniqueString(seed)}', 24)
+  keyVault: take('kv-ml-${prefix}-${uniqueString(seed)}', 24)
+  appKeyVault: take('kv-app-${prefix}-${uniqueString(seed)}', 24)
   acr: take('acr${replace(toLower(prefix), '-', '')}${uniqueString(seed)}', 50)
   search: 'srch-${prefix}-${take(uniqueString(seed), 6)}'
-  aiServices: 'ais-${prefix}-${take(uniqueString(seed), 6)}'
+  aiServices: 'foundry-${prefix}-${take(uniqueString(seed), 6)}'
   logAnalytics: 'log-${prefix}'
   appInsights: 'appi-${prefix}'
   mlWorkspace: 'mlw-${prefix}'
-  funcPlan: 'plan-${prefix}'
+  funcPlan: 'plan-func-${prefix}'
   funcApp: 'func-${prefix}-${take(uniqueString(seed), 6)}'
   resolver: 'dnspr-${prefix}'
   resolverInbound: 'inbound'
