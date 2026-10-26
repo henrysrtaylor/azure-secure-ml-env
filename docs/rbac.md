@@ -4,7 +4,7 @@ Key authentication is disabled on the data services, so every user needs Azure r
 
 ## Groups
 
-`./scripts/deploy.ps1 -Step 5` creates these groups if they don't exist (named from `ENVIRONMENT_NAME` in `.env`). It makes the deploying user their owner and a member of both, then assigns the roles below.
+`./scripts/deploy.ps1 -Step 4` creates these groups if they don't exist (named from `NAME_PREFIX` in `.env`). It makes the deploying user their owner and a member of both, then assigns the roles below.
 
 | Group | Purpose |
 |---|---|
@@ -32,11 +32,11 @@ Roles are assigned only to these groups, never to individual users.
 | Azure ML workspace | AzureML Data Scientist, AzureML Compute Operator | same as admins |
 | Function App | Website Contributor | Website Contributor |
 
-Admins also get Contributor on the resource group, which covers creating and changing resources. Contributor cannot assign roles, so the identity running step 5 needs Owner or User Access Administrator.
+Admins also get Contributor on the resource group, which covers creating and changing resources. Contributor cannot assign roles, so the identity running step 4 needs Owner or User Access Administrator.
 
 ## Add members
 
-Membership changes take effect without redeploying anything. Only a group owner, or an Entra admin who can manage groups, can change membership. The user who ran step 5 is an owner of both groups.
+Membership changes take effect without redeploying anything. Only a group owner, or an Entra admin who can manage groups, can change membership. The user who ran step 4 is an owner of both groups.
 
 Choose a group:
 
@@ -94,15 +94,15 @@ Invite them first in the Entra admin center under **Users**, then **Invite exter
 
 1. Sign out and back in (`az login`, or the portal) so their token includes the new group. Roles can take several minutes to apply.
 2. Install the VPN client and import the profile. See [vpn-client-setup.md](vpn-client-setup.md).
-3. Admin consent for the Azure VPN Client app must already be granted for the tenant.
+3. If sign-in says admin approval is required, a tenant admin must approve the Azure VPN Client app. See [vpn-client-setup.md](vpn-client-setup.md#grant-admin-consent).
 
 ### Use an existing group instead
 
-To use groups you already manage, set `RBAC_ADMIN_GROUP_ID` and `RBAC_DEVELOPER_GROUP_ID` in `.env` to their object IDs and rerun `./scripts/deploy.ps1 -Step 5`. Membership is then managed wherever those groups are managed.
+To use groups you already manage, set `RBAC_ADMIN_GROUP_ID` and `RBAC_DEVELOPER_GROUP_ID` in `.env` to their object IDs and rerun `./scripts/deploy.ps1 -Step 4`. Membership is then managed wherever those groups are managed.
 
 ## Change what a tier can do
 
-Edit the role lists in `infra/05-rbac.bicep` (the `*Assignments` variables) and rerun `./scripts/deploy.ps1 -Step 5`. Role assignments are tracked by name, so removing a role from a list does not delete the old assignment. Delete it with `az role assignment delete`.
+Edit the role lists in `infra/04-rbac.bicep` (the `*Assignments` variables) and rerun `./scripts/deploy.ps1 -Step 4`. Role assignments are tracked by name, so removing a role from a list does not delete the old assignment. Delete it with `az role assignment delete`.
 
 ## Audit
 
@@ -120,16 +120,16 @@ Assignments of type `ServicePrincipal` belong to the services' own managed ident
 - **VPN profile:** generating the VPN profile needs write-level rights on the gateway. Only admins have them. Developers get the profile file from an admin.
 - **Reader scope:** developers have Reader on the resource group, so they can see resources but not change them. Changes to infrastructure go through admins or the deployment script.
 - **Groups outlive the resource group:** the Entra groups are not deleted when the resource group is deleted. Delete them separately.
-- **Removed roles:** removing a role from `infra/05-rbac.bicep` does not delete the existing assignment.
+- **Removed roles:** removing a role from `infra/04-rbac.bicep` does not delete the existing assignment.
 - **Guests:** external (B2B guest) users can be group members. Their sign-in name differs from their email, so look them up by email as shown above.
 - **Token refresh:** new memberships and roles apply after a fresh sign-in and can take several minutes.
-- **Service identities:** the Function App identity has Storage Blob Data Owner on the ML storage account and Key Vault Secrets User on the application vault. The ML workspace identity receives its roles from Azure when the workspace is created. These are not managed by step 5.
+- **Service identities:** the Function App identity has Storage Blob Data Owner on the ML storage account and Key Vault Secrets User on the application vault. The ML workspace identity receives its roles from Azure when the workspace is created. These are not managed by step 4.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | `403` from a service that resolves to a private IP | You lack a role. Check group membership, then sign out and in |
-| Step 5 fails creating groups | Your account lacks permission to create groups. Create them in Entra and set the `RBAC_*_GROUP_ID` values in `.env` |
-| Step 5 fails creating role assignments | The deploying identity needs Owner or User Access Administrator |
+| Step 4 fails creating groups | Your account lacks permission to create groups. Create them in Entra and set the `RBAC_*_GROUP_ID` values in `.env` |
+| Step 4 fails creating role assignments | The deploying identity needs Owner or User Access Administrator |
 | Cannot read secrets in the ML workspace vault | By design. That vault is for admins only; use the application vault |

@@ -1,17 +1,19 @@
 # VPN client setup (personal computer)
 
-All services in this environment are private-only. You must be connected to the Point-to-Site VPN to reach them.
+All services in this environment are private-only. You must be connected to the Point-to-Site VPN to reach them. The VPN is intended for trusted teams. For third-party users see [accessing-the-environment.md](accessing-the-environment.md), which compares the VPN with Bastion.
 
 Values in angle brackets come from your `.env` or the step 6 output (`./scripts/deploy.ps1 -Step 6`).
 
 ## Prerequisites
 
-1. A tenant admin has granted consent for the Azure VPN Client app (one time per tenant, not per user). See [Grant admin consent](#grant-admin-consent) below. Without it, VPN sign-in fails with a message that admin approval is required.
+1. Tenant admin consent for the Azure VPN Client app is **not required in every tenant**. In the reference tenant a non-admin guest account connected without it, and the app never appeared in the tenant's directory. Import the profile and try to connect first. Only if sign-in says admin approval is required, follow [Grant admin consent](#grant-admin-consent) below. It is one time per tenant, not per user.
 2. Your Microsoft Entra account (member or B2B guest) is in the tenant. Your device does not need to be domain joined.
 3. Admin access on your machine to install the VPN client.
 4. Membership in one of the environment's groups, otherwise you can connect but are not authorized on any service. See [rbac.md](rbac.md). After being added, sign out and back in (`az login`, and the portal) so your token includes the new group. Connecting to the VPN itself does not depend on the groups.
 
 ## Grant admin consent
+
+Only needed if VPN sign-in says admin approval is required (see the first prerequisite). Whether it is needed depends on the tenant's user-consent settings.
 
 The VPN Gateway accepts sign-ins for the Azure VPN Client app (`c632b3df-fb67-4d84-bdcf-b95ad541b5c8`, public cloud). A tenant admin must approve that app once for the whole tenant. This needs a Global Administrator, Privileged Role Administrator, or Cloud Application Administrator **in the tenant that hosts the environment**. A guest account without one of these roles cannot grant it.
 
@@ -43,7 +45,7 @@ Step 6 of the deploy script runs this check too.
 
    > Please approve the Microsoft app "Azure VPN Client" (app ID `c632b3df-fb67-4d84-bdcf-b95ad541b5c8`) for our tenant `<tenant_id>`, by opening the consent URL in docs/vpn-client-setup.md and selecting Accept. It is a Microsoft app used for VPN sign-in, and it needs only the sign-in and basic profile permissions.
 
-3. **Check the result** with the `az ad sp list` command above. The check reads the tenant directory, which most accounts, including guests, can do. An empty result means the app has not been added to the tenant yet. It does not by itself prove sign-in will fail, because user consent can add the app at first sign-in.
+3. **Check the result** with the `az ad sp list` command above. An empty result means the app has not been added to the tenant directory. That alone does not mean sign-in will fail: in the reference tenant the result stayed empty after a successful connection.
 
 The environment's Azure subscription and the Entra tenant are linked, so approval has to happen in that tenant. It cannot be done from another tenant.
 
@@ -85,11 +87,16 @@ macOS follows the same steps with the [App Store client](https://apps.apple.com/
 
 ## Verify
 
+Use `Resolve-DnsName`, not `nslookup`. On Windows the VPN sets a DNS rule that only the Windows resolver follows. `nslookup` ignores it and asks your normal DNS server, so it returns public addresses even when the VPN works.
+
 ```powershell
-nslookup <vault_name>.vault.azure.net
+Resolve-DnsName <vault_name>.vault.azure.net -Type A
+Test-NetConnection <private_ip> -Port 443
 ```
 
-The answer must be a private `10.0.1.x` address. A public IP means DNS is not going through the VPN. This proves the tunnel is up and the DNS resolver (the VNet DNS server in your profile) is answering.
+The first command must return a private `10.0.1.x` address. A public IP means DNS is not going through the VPN. The second, with that address, must report `TcpTestSucceeded : True`. Together they prove the tunnel is up, the DNS resolver (the VNet DNS server in your profile) is answering, and the private endpoint is reachable.
+
+To test the resolver itself, ask it directly: `nslookup <vault_name>.vault.azure.net <resolver_ip>`. This works through the tunnel whatever your DNS settings are.
 
 Then open `https://ml.azure.com` or `https://portal.azure.com` and browse to the resources.
 
@@ -97,9 +104,9 @@ Then open `https://ml.azure.com` or `https://portal.azure.com` and browse to the
 
 | Symptom | Fix |
 |---|---|
-| Sign-in loop or consent error | Admin consent for the Azure VPN Client app is missing. See [Grant admin consent](#grant-admin-consent) |
+| Sign-in loop or consent error | Sign-in says admin approval is required. See [Grant admin consent](#grant-admin-consent) |
 | "localhost refused to connect" after opening the consent URL | You used the `adminconsent` URL, which redirects to `localhost`. Use the `oauth2/authorize` URL in [Grant admin consent](#grant-admin-consent) and check with `az ad sp list` |
-| Connected but names resolve to public IPs | Re-import a freshly generated profile. Turn off browser "secure DNS" (DNS over HTTPS) overrides. |
+| Connected but names resolve to public IPs | First check with `Resolve-DnsName`, not `nslookup` (see [Verify](#verify)). If `Resolve-DnsName` also returns public addresses, re-import a freshly generated profile and turn off browser "secure DNS" (DNS over HTTPS) overrides. |
 | `403` from a service even though it resolves privately | You need group membership or roles. See [rbac.md](rbac.md). |
 | Portal data views fail | Portal data views call the service from your browser, so the VPN must be connected |
 | `Unable to load extension 'azure-cli-ml'` on every `az` command | A broken legacy extension on your machine. Harmless; silence it with `az extension remove -n azure-cli-ml` |
@@ -108,7 +115,7 @@ Then open `https://ml.azure.com` or `https://portal.azure.com` and browse to the
 ## Notes
 
 - **Guests:** external (B2B guest) accounts can be used, but guest sign-in to the VPN was not verified. See the troubleshooting table.
-- **Verification:** the author verified the gateway configuration with the Azure CLI, not a live client connection. Treat your first connection and the `nslookup` check above as the acceptance test.
+- **Verification:** the Azure VPN Client connection, private name resolution and TCP reachability of the private endpoints were verified from a Windows 11 machine on a personal home network, using an account that is an external guest in the tenant. Linux is not covered. The macOS client, other networks and the users who connect after you were not tested. Use the checks in [Verify](#verify) as the acceptance test.
 - **Linux is not supported.** The Azure VPN Client for Linux was retired on 31 August 2026, and the OpenVPN and strongSwan clients do not support Microsoft Entra ID sign-in with this gateway. Linux users need a Windows or macOS machine, such as a virtual machine or remote desktop.
 - **Supported platforms:** Windows 11 (x64, x86, ARM64) and macOS 12 to 15 (x64, Arm64). The macOS client is not available in France and China.
 - **Permissions on Windows:** the Azure VPN Client must be allowed to run in the background. In the client, **... > Prerequisites > Run Prerequisites Test** reports anything missing.

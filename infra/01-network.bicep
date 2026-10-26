@@ -9,7 +9,7 @@ param gatewaySubnetPrefix string = '10.0.2.0/24'
 param dnsInboundSubnetPrefix string = '10.0.3.0/28'
 // Flex Consumption VNet integration needs its own delegated subnet.
 param funcSubnetPrefix string = '10.0.4.0/24'
-// Set to the resolver inbound IP in step 4 so VPN clients receive it.
+// Set to the resolver inbound IP in step 5 so VPN clients receive it.
 param dnsServer string = ''
 
 var n = resourceNames(prefix, resourceGroup().id)

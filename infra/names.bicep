@@ -16,7 +16,7 @@ var privateDnsZones = {
   sites: 'privatelink.azurewebsites.net'
 }
 
-// Convention: <type>-<purpose>-<env prefix>[-<hash>]. The hash is only added where Azure needs a globally unique name.
+// Convention: <type>-<purpose>-<prefix>[-<hash>]. The hash is only added where Azure needs a globally unique name.
 @export()
 func resourceNames(prefix string, seed string) object => {
   vnet: 'vnet-${prefix}'

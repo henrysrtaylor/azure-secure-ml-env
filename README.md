@@ -8,8 +8,8 @@ A Bicep-based, private-only Azure environment for an AI engineering team. All Pa
 - `infra/01-network.bicep`: Virtual network, subnets, and private DNS zones linked to the VNet.
 - `infra/02-storage-keyvault.bicep`: ADLS Gen2 storage account and two Key Vaults (ML workspace, application secrets) with private endpoints.
 - `infra/03-ai-ml.bicep`: Container Registry, AI Search, AI Foundry (AI Services / Azure OpenAI), Document Intelligence, Custom Vision, Azure Machine Learning, and a Flex Consumption Function App with private endpoints.
-- `infra/04-vpn-resolver.bicep`: DNS Private Resolver with an inbound endpoint and a VPN Gateway (P2S, OpenVPN, Entra ID).
-- `infra/05-rbac.bicep`: Tiered roles (admin, developer) for Entra groups on each resource. Key authentication is disabled, so RBAC is required.
+- `infra/04-rbac.bicep`: Tiered roles (admin, developer) for Entra groups on each resource. Key authentication is disabled, so RBAC is required.
+- `infra/05-access-vpn.bicep`: The access layer for `ACCESS_MODE=vpn`: DNS Private Resolver with an inbound endpoint and a VPN Gateway (P2S, OpenVPN, Entra ID). Bastion is planned for the other modes.
 - `infra/modules/cognitive-account.bicep`: Reusable Cognitive Services account (Document Intelligence, Custom Vision) with its private endpoint.
 - `infra/modules/private-endpoint.bicep`: Reusable private endpoint with DNS zone group.
 - `scripts/deploy.ps1`: Builds, validates, and deploys the steps in order, then prints portal links, private endpoint IPs, and VPN client profile details.
@@ -20,6 +20,7 @@ A Bicep-based, private-only Azure environment for an AI engineering team. All Pa
 - [docs/deployment.md](docs/deployment.md): requirements, `.env` reference, running and verifying the deployment, cost, tear down, troubleshooting, known limitations.
 - [docs/architecture.md](docs/architecture.md): what is deployed and why.
 - [docs/rbac.md](docs/rbac.md): groups, roles, adding and removing people.
+- [docs/accessing-the-environment.md](docs/accessing-the-environment.md): the two ways in (VPN for trusted teams, Bastion for third parties) and when to use each.
 - [docs/vpn-client-setup.md](docs/vpn-client-setup.md): installing the VPN client and connecting.
 
 ## 📈 Future Roadmap
@@ -41,8 +42,8 @@ azure-secure-ml-env/
 │   ├── 01-network.bicep                # VNet, subnets, private DNS zones
 │   ├── 02-storage-keyvault.bicep       # ADLS Gen2, Key Vaults
 │   ├── 03-ai-ml.bicep                  # ACR, Search, AI Services, ML, Function App
-│   ├── 04-vpn-resolver.bicep           # DNS Private Resolver, VPN Gateway
-│   ├── 05-rbac.bicep                   # Tiered role assignments for Entra groups
+│   ├── 04-rbac.bicep                   # Tiered role assignments for Entra groups
+│   ├── 05-access-vpn.bicep             # Access layer: DNS Private Resolver, VPN Gateway
 │   └── bicepconfig.json                # Linter settings
 ├── scripts/
 │   └── deploy.ps1                      # Step-by-step deployment
@@ -74,7 +75,7 @@ To deploy:
 - An Azure subscription with quota in your chosen region for VpnGw1AZ, Flex Consumption, and Azure AI Services
 - Owner (or Contributor plus User Access Administrator) on the subscription, to create resources and role assignments
 - Permission in Microsoft Entra ID to create groups, or existing groups to use instead
-- A tenant admin to grant consent for the Azure VPN Client app
+- A tenant admin, only if VPN sign-in asks for approval of the Azure VPN Client app (it did not in the reference tenant)
 
 To use the environment:
 
@@ -88,12 +89,14 @@ See [docs/vpn-client-setup.md](docs/vpn-client-setup.md) for installing the VPN 
 ### High-Level Steps
 
 1. Install the Azure CLI and Bicep, then sign in with `az login`.
-2. Copy `.env.example` to `.env` and fill in your values.
+2. Copy `.env.example` to `.env` and fill in your values, including `ACCESS_MODE` (`vpn` is the only mode built).
 3. Run `./scripts/deploy.ps1` to deploy everything (about 45 minutes, mostly the VPN Gateway).
-4. Have a tenant admin grant consent for the Azure VPN Client app (see [docs/vpn-client-setup.md](docs/vpn-client-setup.md#grant-admin-consent)).
+4. Try the VPN. Only if sign-in asks for admin approval, have a tenant admin approve the Azure VPN Client app (see [docs/vpn-client-setup.md](docs/vpn-client-setup.md#grant-admin-consent)).
 5. Add users to the Entra groups. See [docs/rbac.md](docs/rbac.md).
 6. An admin generates the VPN profile and shares it. Each user installs the Azure VPN Client, imports the profile, and connects.
 7. Verify that a private name resolves to a `10.0.1.x` address and that the Azure ML studio opens.
+
+The script deploys in three stages: the infrastructure (steps 1 to 3), access control (step 4) and finally the connectivity layer (step 5), where `ACCESS_MODE` chooses how people connect. Step 6 prints a summary.
 
 ### Clone the Repository
 
@@ -104,7 +107,7 @@ cd azure-secure-ml-env
 
 ### Configure the Environment
 
-Copy the template, then fill in your subscription ID, tenant ID, location, and environment prefix:
+Copy the template, then fill in your subscription ID, tenant ID, location, and `NAME_PREFIX`. The name prefix is the `<prefix>` you see in resource names and throughout the docs (for example `vnet-<prefix>`):
 
 ```powershell
 Copy-Item .env.example .env
@@ -113,7 +116,7 @@ az login --tenant <your_tenant_id>
 
 ## 🛠️ Development
 
-Validate every step without deploying. It creates no groups or resources (apart from an empty resource group), and later steps only validate fully once earlier steps are deployed, so on a fresh subscription validate step by step (`-Step 1 -ValidateOnly`, then deploy it, and so on):
+Validate every step without deploying. It creates no groups or resources (apart from an empty resource group), and later steps only validate fully once earlier steps are deployed, so on a fresh subscription validate step by step (`-Step 1 -ValidateOnly`, then deploy it, and so on). On a resource group deployed before the current naming convention, steps 2, 3 and 4 are refused (see [Naming](docs/deployment.md#naming)):
 
 ```powershell
 ./scripts/deploy.ps1 -ValidateOnly
@@ -125,16 +128,16 @@ Deploy everything in order (steps 1 to 6; the VPN Gateway typically takes 30 to 
 ./scripts/deploy.ps1
 ```
 
-Deploy selected steps only. Step 5 grants RBAC and step 6 prints the summary:
+Deploy selected steps only. Step 4 grants RBAC, step 5 sets up access and step 6 prints the summary:
 
 ```powershell
 ./scripts/deploy.ps1 -Step 3
 ./scripts/deploy.ps1 -Step 4,5,6
 ```
 
-Step 5 creates two Entra groups (`sg-<prefix>-admins` and `sg-<prefix>-developers`) if they don't exist, adds you to both, and assigns roles to them. Add people to a group to give them access, with no redeploy. To use existing groups, set the `RBAC_*_GROUP_ID` values in `.env`. The deploying identity needs Owner or User Access Administrator. See [docs/rbac.md](docs/rbac.md).
+Step 4 creates two Entra groups (`sg-<prefix>-admins` and `sg-<prefix>-developers`) if they don't exist, adds you to both, and assigns roles to them. Add people to a group to give them access, with no redeploy. To use existing groups, set the `RBAC_*_GROUP_ID` values in `.env`. The deploying identity needs Owner or User Access Administrator. See [docs/rbac.md](docs/rbac.md).
 
-After step 4, grant admin consent for the Azure VPN Client app (see [docs/vpn-client-setup.md](docs/vpn-client-setup.md#grant-admin-consent); step 6 reports whether it is granted), import `azurevpnconfig.xml` from the generated profile zip into the Azure VPN Client, and connect. Private names then resolve through the resolver at `10.0.3.4`. See [docs/vpn-client-setup.md](docs/vpn-client-setup.md) and [docs/architecture.md](docs/architecture.md).
+After step 5, import `azurevpnconfig.xml` from the generated profile zip into the Azure VPN Client and connect. If sign-in asks for admin approval, see [docs/vpn-client-setup.md](docs/vpn-client-setup.md#grant-admin-consent). Private names then resolve through the resolver at `10.0.3.4`. See [docs/vpn-client-setup.md](docs/vpn-client-setup.md) and [docs/architecture.md](docs/architecture.md).
 
 ## 🤝 Contributing
 

@@ -76,7 +76,7 @@ The VNet address space is `10.0.0.0/16`. The resolver inbound endpoint uses the 
 - **Custom Vision is being retired.** Microsoft will support it until 25 September 2028 and recommends Azure ML AutoML or Foundry models for new work. It is included because it was requested.
 - **Extra DNS zones.** `privatelink.notebooks.azure.net` (ML notebooks) and `privatelink.file.core.windows.net` (ML storage file share) are required by Azure ML and were added to the list in the brief.
 - **Azure ML network mode.** The workspace uses a managed network in `AllowInternetOutbound` mode. Public access to the workspace itself is disabled.
-- **Resolver as VNet DNS.** The DNS Private Resolver inbound endpoint is a static address and is also set as the VNet DNS server, so VPN clients receive it in their profile. Step 4 deploys step 1 a second time to set it.
+- **Resolver as VNet DNS.** The DNS Private Resolver inbound endpoint is a static address and is also set as the VNet DNS server, so VPN clients receive it in their profile. Step 5 deploys step 1 a second time to set it.
 - **Names.** Every name follows `<type>-<purpose>-<prefix>`, with a hash suffix derived from the resource group ID only where Azure needs a globally unique name. They are stable across redeployments. See [deployment.md](deployment.md#naming) and `infra/names.bicep`.
 - **Subscription-added resources.** Empty network security groups on three subnets and Event Grid system topics on the storage accounts appear in the resource group. They are added by the subscription, not by these templates, and have no custom rules.
 
@@ -107,8 +107,8 @@ The VNet address space is `10.0.0.0/16`. The resolver inbound endpoint uses the 
 | 1 | `infra/01-network.bicep` | VNet, subnets, private DNS zones and links |
 | 2 | `infra/02-storage-keyvault.bicep` | Data Lake, both Key Vaults, private endpoints |
 | 3 | `infra/03-ai-ml.bicep` | Container Registry, Search, AI Foundry, Azure ML, Function App, private endpoints |
-| 4 | `infra/04-vpn-resolver.bicep` | DNS Private Resolver and VPN Gateway, then step 1 again to set VNet DNS |
-| 5 | `infra/05-rbac.bicep` | Entra groups and role assignments |
-| 6 | (script) | Summary: portal links, private endpoint IPs, VPN profile |
+| 4 | `infra/04-rbac.bicep` | Entra groups and role assignments |
+| 5 | `infra/05-access-vpn.bicep` | Access layer chosen by `ACCESS_MODE`. For `vpn`: DNS Private Resolver and VPN Gateway, then step 1 again to set VNet DNS. Bastion is planned |
+| 6 | (script) | Summary: portal links, private endpoint IPs, connection details for the chosen access mode |
 
 See [README.md](../README.md) for how to run them and [vpn-client-setup.md](vpn-client-setup.md) for connecting.

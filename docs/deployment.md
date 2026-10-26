@@ -11,9 +11,9 @@ How to deploy, verify, update and remove the environment, plus everything that c
 | Bicep | Install with `az bicep install`. |
 | Git | To clone the repository. |
 | Azure subscription | Quota in your chosen region for the VPN Gateway SKU `VpnGw1AZ`, Flex Consumption (`FC1`), Azure AI Services (`S0`), AI Search (`standard`) and Container Registry (`Premium`). The region must support availability zones for `VpnGw1AZ`. |
-| Azure permissions | Owner on the subscription, or Contributor plus User Access Administrator. Contributor alone cannot create role assignments, so step 3 and step 5 fail without the second role. |
+| Azure permissions | Owner on the subscription, or Contributor plus User Access Administrator. Contributor alone cannot create role assignments, so step 3 and step 4 fail without the second role. |
 | Entra permissions | Permission to create groups, or existing groups whose object IDs you put in `.env`. |
-| Tenant admin | A Global Administrator, Privileged Role Administrator or Cloud Application Administrator must grant consent for the Azure VPN Client app (see below). |
+| Tenant admin | Only if VPN sign-in asks for it: a Global Administrator, Privileged Role Administrator or Cloud Application Administrator approves the Azure VPN Client app. It was not needed for a guest account in the reference tenant. See [vpn-client-setup.md](vpn-client-setup.md#grant-admin-consent). |
 | Network access | The machine running the script needs internet access to Azure. It does **not** need the VPN, because deployment uses the public Azure control plane. |
 
 ## Configure
@@ -30,13 +30,14 @@ Edit `.env`. `.env` is git-ignored and holds your values.
 | `AZURE_SUBSCRIPTION_ID` | Target subscription | The script selects it with `az account set`. |
 | `AZURE_TENANT_ID` | Entra tenant | Used for the VPN sign-in settings and links. |
 | `AZURE_LOCATION` | Azure region | Must be a valid region name, for example `uksouth`. |
-| `ENVIRONMENT_NAME` | Name prefix | Use 3 to 8 lowercase letters or digits. Resource names are length limited, and storage and registry names drop hyphens. |
+| `NAME_PREFIX` | The `<prefix>` used in every resource name and throughout these docs | Use 3 to 8 lowercase letters or digits. Resource names are length limited, and storage and registry names drop hyphens. Do not change it after the first deployment. |
 | `RESOURCE_GROUP_NAME` | Resource group | Created if missing. |
 | `VNET_ADDRESS_SPACE` | VNet range | Default `10.0.0.0/16`. |
 | `SERVICES_SUBNET_PREFIX` | Private endpoint subnet | Default `10.0.1.0/24`. |
 | `GATEWAY_SUBNET_PREFIX` | `GatewaySubnet` | Default `10.0.2.0/24`. |
 | `DNS_INBOUND_SUBNET_PREFIX` | Resolver subnet | Default `10.0.3.0/28`. The resolver uses the first usable address (`10.0.3.4`), which the script derives. |
 | `FUNCTION_INTEGRATION_SUBNET_PREFIX` | Function VNet integration subnet | Default `10.0.4.0/24`. |
+| `ACCESS_MODE` | How people connect (step 5) | `vpn` is the only mode built, and the default when blank. `bastion` and `both` are planned and refused by the script until built. See [accessing-the-environment.md](accessing-the-environment.md) for when to use each and [bastion-considerations.md](bastion-considerations.md) for the plan. |
 | `RBAC_ADMIN_GROUP_ID` | Existing admins group | Leave blank to create `sg-<prefix>-admins`. |
 | `RBAC_DEVELOPER_GROUP_ID` | Existing developers group | Leave blank to create `sg-<prefix>-developers`. |
 | `VPN_GATEWAY_SKU` | Gateway SKU | Default `VpnGw1AZ`. |
@@ -70,14 +71,16 @@ Run selected steps:
 ./scripts/deploy.ps1 -Step 4,5,6
 ```
 
+The steps fall into three stages. The infrastructure comes first (steps 1 to 3), then access control (step 4), and last the connectivity layer (step 5), where `ACCESS_MODE` chooses how people connect. Step 6 only reports.
+
 | Step | File | What it does | Notes |
 |---|---|---|---|
 | 1 | `infra/01-network.bicep` | VNet, subnets, 12 private DNS zones and VNet links | |
 | 2 | `infra/02-storage-keyvault.bicep` | Data Lake, two Key Vaults, private endpoints | |
 | 3 | `infra/03-ai-ml.bicep` | ACR, AI Search, AI Foundry, Document Intelligence, Custom Vision (training and prediction), ML workspace, Function App, private endpoints | |
-| 4 | `infra/04-vpn-resolver.bicep` | DNS Private Resolver, VPN Gateway, then step 1 again | The gateway typically takes 30 to 45 minutes. The repeat of step 1 sets the resolver as the VNet DNS server. |
-| 5 | `infra/05-rbac.bicep` | Creates the Entra groups if needed, adds you to both, assigns roles | Needs Owner or User Access Administrator. |
-| 6 | (script only) | Prints portal links, private endpoint IPs, VPN profile details | Read-only. Skips registration and takes about 20 seconds. |
+| 4 | `infra/04-rbac.bicep` | Creates the Entra groups if needed, adds you to both, assigns roles | Needs Owner or User Access Administrator. |
+| 5 | `infra/05-access-vpn.bicep` (`ACCESS_MODE=vpn`) | DNS Private Resolver, VPN Gateway, then step 1 again | The gateway typically takes 30 to 45 minutes. The repeat of step 1 sets the resolver as the VNet DNS server. Bastion is planned for the other `ACCESS_MODE` values and is not built yet. |
+| 6 | (script only) | Prints portal links, private endpoint IPs, and the connection details for the chosen access mode | Read-only. Skips registration and takes about 20 seconds. |
 
 Before step 1 the script also:
 - Registers the required resource providers if they are not registered.
@@ -89,7 +92,7 @@ Before step 1 the script also:
 
 The script cannot do these:
 
-1. **Admin consent.** A tenant admin approves the Azure VPN Client app using the steps in [vpn-client-setup.md](vpn-client-setup.md#grant-admin-consent). Once per tenant. Step 6 reports whether it has been granted.
+1. **Admin consent, only if needed.** Try the VPN first. If sign-in says admin approval is required, a tenant admin approves the Azure VPN Client app using [vpn-client-setup.md](vpn-client-setup.md#grant-admin-consent). Once per tenant.
 2. **Add people** to `sg-<prefix>-admins` or `sg-<prefix>-developers`. See [rbac.md](rbac.md).
 3. **Sign out and back in** (`az login`, and the portal) so tokens include your new group memberships.
 4. **Generate the VPN profile** (admins only) and share it, then each user installs the client and connects. See [vpn-client-setup.md](vpn-client-setup.md).
@@ -137,17 +140,18 @@ Role assignments for the two groups (the parentheses matter in Windows PowerShel
 (az role assignment list --all -o json | Out-String | ConvertFrom-Json) | Where-Object { $_.scope -like '*<rg>*' -and $_.principalType -eq 'Group' } | Format-Table roleDefinitionName, scope
 ```
 
-Checks that need the VPN (run after connecting):
+Checks that need the VPN (run after connecting). Use `Resolve-DnsName`, not `nslookup`, which ignores the VPN's DNS rule on Windows:
 
 ```powershell
-nslookup <vault_name>.vault.azure.net     # expect a 10.0.1.x address
+Resolve-DnsName <vault_name>.vault.azure.net -Type A     # expect a 10.0.1.x address
+Test-NetConnection <that address> -Port 443               # expect TcpTestSucceeded : True
 ```
 
 Then open `https://ml.azure.com` and sign in.
 
 ## Naming
 
-Every resource is named `<type>-<purpose>-<environment prefix>`, so the name alone says what it is. A short hash from the resource group ID is added only where Azure needs a globally unique name. Names are defined in one place, `infra/names.bicep`. Examples use the prefix `aisandbox`.
+Every resource is named `<type>-<purpose>-<prefix>`, so the name alone says what it is. `<prefix>` is the `NAME_PREFIX` value in `.env`, and it is the same value everywhere these docs say "prefix". A short hash from the resource group ID is added only where Azure needs a globally unique name. Names are defined in one place, `infra/names.bicep`. Examples use the prefix `aisandbox`.
 
 | Resource | Pattern | Example |
 |---|---|---|
@@ -172,7 +176,7 @@ Every resource is named `<type>-<purpose>-<environment prefix>`, so the name alo
 
 Storage account and registry names cannot contain hyphens, so the prefix is used without them.
 
-**Environments deployed before this convention** used `kv-<prefix>-...` and `kva-<prefix>-...` for the Key Vaults, `stml<prefix>...` for the ML storage, `ais-<prefix>-...` for AI Foundry and `plan-<prefix>` for the plan. Azure cannot rename these resources, and the ML workspace cannot switch Key Vault, so rerunning steps 2, 3 or 5 there would create duplicates. The deploy script refuses to do so: it marks resource groups created with the new names by a `naming=v2` tag, and stops steps 2, 3 and 5 on any resource group that has resources but no tag. Steps 1, 4 and 6 are unaffected. To adopt the new names, deploy to a new resource group (set a new `RESOURCE_GROUP_NAME`, and a new `ENVIRONMENT_NAME` if the old vaults are still soft-deleted) and tear the old one down.
+**Environments deployed before this convention** used `kv-<prefix>-...` and `kva-<prefix>-...` for the Key Vaults, `stml<prefix>...` for the ML storage, `ais-<prefix>-...` for AI Foundry and `plan-<prefix>` for the plan. Azure cannot rename these resources, and the ML workspace cannot switch Key Vault, so rerunning steps 2, 3 or 4 there would create duplicates. The deploy script refuses to do so: it marks resource groups created with the new names by a `naming=v2` tag, and stops steps 2, 3 and 4 on any resource group that has resources but no tag. Steps 1, 5 and 6 are unaffected. To adopt the new names, deploy to a new resource group (set a new `RESOURCE_GROUP_NAME`, and a new `NAME_PREFIX` if the old vaults are still soft-deleted) and tear the old one down.
 
 ## Cost
 
@@ -189,7 +193,7 @@ Flex Consumption bills only for execution. Azure ML, AI Services, Document Intel
 ## Update
 
 - Edit a Bicep file or `.env`, then rerun the affected step. Steps are incremental.
-- Changing role lists in `infra/05-rbac.bicep` adds assignments but does not remove old ones. See [rbac.md](rbac.md).
+- Changing role lists in `infra/04-rbac.bicep` adds assignments but does not remove old ones. See [rbac.md](rbac.md).
 - Changing `VNET_ADDRESS_SPACE` or a subnet prefix after the first deployment will fail or require recreating the environment.
 - After changing the VNet DNS server or gateway settings, generate and import a new VPN profile.
 
@@ -202,7 +206,7 @@ Flex Consumption bills only for execution. Azure ML, AI Services, Document Intel
    ```
 
 2. Soft-deleted resources keep their names reserved:
-   - Key Vaults have purge protection, so a deleted vault cannot be purged for 90 days. Resource names are derived from the resource group ID, so redeploying to the same resource group name tries to reuse the same vault names and fails. Either recover the vault (`az keyvault recover --name <vault>`) or deploy with a different `ENVIRONMENT_NAME`.
+   - Key Vaults have purge protection, so a deleted vault cannot be purged for 90 days. Resource names are derived from the resource group ID, so redeploying to the same resource group name tries to reuse the same vault names and fails. Either recover the vault (`az keyvault recover --name <vault>`) or deploy with a different `NAME_PREFIX`.
    - Deleted AI Services accounts can be purged with `az cognitiveservices account purge`.
 3. Delete the Entra groups if you no longer need them (`az ad group delete --group <name>`). They are not part of the resource group.
 4. The provider and feature registrations are subscription-wide and are left in place.
@@ -214,21 +218,22 @@ Flex Consumption bills only for execution. Azure ML, AI Services, Document Intel
 | `Unable to load extension 'azure-cli-ml'` printed on every command | A broken legacy Azure CLI extension on your machine. It is harmless to this project. To silence it: `az extension remove -n azure-cli-ml`. |
 | `ConnectionResetError(10054)` | Transient network error. The script retries three times. Rerun if it still fails. |
 | `SubscriptionNotRegisteredForFeature ... AllowBringYourOwnPublicIpAddress` | The preview feature is not registered yet. The script registers it and waits. If you ran the Bicep manually, register it with `az feature register` and then `az provider register --namespace Microsoft.Network`. |
-| Step 5 fails creating groups | Your account cannot create Entra groups. Create them in Entra and put their IDs in `RBAC_ADMIN_GROUP_ID` and `RBAC_DEVELOPER_GROUP_ID`. |
+| Step 4 fails creating groups | Your account cannot create Entra groups. Create them in Entra and put their IDs in `RBAC_ADMIN_GROUP_ID` and `RBAC_DEVELOPER_GROUP_ID`. |
 | `AuthorizationFailed` creating role assignments | The identity running the script needs Owner or User Access Administrator. |
 | Quota or capacity error for the gateway, Flex Consumption or AI Services | Request quota or choose another region in `AZURE_LOCATION`. |
 | Key Vault name conflict or vault shows as deleted | A soft-deleted vault holds the name. See Tear down. |
 | `was deployed with the previous resource names` | The resource group predates the current naming convention. See [Naming](#naming). |
 | In Azure ML studio, Notebooks, the VS Code option is greyed out | It needs a running compute instance, and none is deployed. In studio go to Manage, Compute, Compute instances, New, wait for Running, then select it in Notebooks. Requires the VPN and the admins or developers group (AzureML Compute Operator). Quota and first-time managed network setup in your region were not tested. |
 | `-ValidateOnly` fails on step 2 or later on a fresh subscription | Expected. Those steps need earlier resources to exist. Deploy step by step. |
-| Step 4 appears stuck | The VPN Gateway takes 30 to 45 minutes. |
+| Step 5 appears stuck | The VPN Gateway takes 30 to 45 minutes. |
+| `ACCESS_MODE=bastion needs Bastion, which is not built yet` | Bastion access is planned, not built. Set `ACCESS_MODE="vpn"` in `.env`. See [bastion-considerations.md](bastion-considerations.md). |
 | `az ... --query` fails with `was unexpected at this time` | Quoting problem in Windows PowerShell when a query contains parentheses. Use the commands in this guide, or filter in PowerShell. |
 
 ## Known limitations
 
-- **Verified by checks, not by users.** The deployed configuration was verified with the Azure CLI checks above and with ARM validation of every step. A live VPN connection, private name resolution from a client, and access as a group member were not exercised by the author. Run the checks in [vpn-client-setup.md](vpn-client-setup.md) after your first connection.
+- **Verified by checks, not by users.** The deployed configuration was verified with the Azure CLI checks above and with ARM validation of every step. A VPN connection from one Windows machine was verified end to end (private name resolution and reachability of the private endpoints). Access as a group member through the portal, guest sign-in, other operating systems and other networks were not exercised by the author.
 - **One region deployed.** The templates were deployed to `uksouth` only. A clean deployment from an empty subscription was not exercised, because the steps were run incrementally.
-- **Guest accounts.** The deploying account in the reference environment is an external (B2B guest) account. Entra sign-in to the VPN is expected to work for guests once admin consent is granted, but this was not verified. If sign-in fails for a guest, test with a member account.
+- **Guest accounts.** The deploying account in the reference environment is an external (B2B guest) account, and it connected to the VPN successfully without admin consent. Other guest accounts, and other tenants' consent settings, were not tested.
 - **No workloads.** There is no function code, ML compute instance or cluster, model deployment or Foundry project. Notebook and VS Code features in Azure ML studio need a compute instance that you create. See [architecture.md](architecture.md#not-included).
 - **No service-to-service private connectivity.** See [architecture.md](architecture.md).
 - **Application Insights** accepts public ingestion.

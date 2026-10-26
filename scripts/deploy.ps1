@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    # 1=network+DNS, 2=storage+Key Vault, 3=AI+ML+Function, 4=VPN+resolver (+VNet DNS), 5=RBAC, 6=summary
+    # 1=network+DNS, 2=storage+Key Vault, 3=AI+ML+Function, 4=RBAC, 5=access (VPN or Bastion per ACCESS_MODE), 6=summary
     [int[]]$Step = @(1, 2, 3, 4, 5, 6),
     [switch]$ValidateOnly,
     [string]$EnvFile = (Join-Path $PSScriptRoot '..\.env')
@@ -18,8 +18,19 @@ Get-Content $EnvFile | Where-Object { $_ -match '^\s*[A-Z_]+=' } | ForEach-Objec
 
 $sub = $cfg.AZURE_SUBSCRIPTION_ID
 $rg = $cfg.RESOURCE_GROUP_NAME
-$prefix = $cfg.ENVIRONMENT_NAME
+$prefix = $cfg.NAME_PREFIX
+if (-not $prefix) {
+    throw "NAME_PREFIX is missing in $EnvFile. It was called ENVIRONMENT_NAME in earlier versions, so rename it."
+}
 $loc = $cfg.AZURE_LOCATION
+# ACCESS_MODE picks how people connect in step 5: vpn, bastion, or both (VPN and Bastion deployed side by side).
+$accessMode = if ($cfg.ACCESS_MODE) { $cfg.ACCESS_MODE.ToLower() } else { 'vpn' }
+if ($accessMode -notin 'vpn', 'bastion', 'both') {
+    throw "ACCESS_MODE must be vpn, bastion or both (got '$accessMode')."
+}
+if ($Step -contains 5 -and $accessMode -ne 'vpn') {
+    throw "ACCESS_MODE=$accessMode needs Bastion, which is not built yet (see docs/bastion-considerations.md). Set ACCESS_MODE=vpn."
+}
 # First usable address of the resolver subnet (.0-.3 are reserved by Azure), e.g. 10.0.3.0/28 -> 10.0.3.4.
 $dnsParts = $cfg.DNS_INBOUND_SUBNET_PREFIX -split '[./]'
 $resolverIp = "$($dnsParts[0]).$($dnsParts[1]).$($dnsParts[2]).$([int]$dnsParts[3] + 4)"
@@ -84,9 +95,10 @@ elseif ($changesAzure -and -not (Invoke-Az group exists -n $rg | ConvertFrom-Jso
     Invoke-Az group create -n $rg -l $loc -o none
 }
 
-# Resource names changed (purpose-based names). Environments deployed before that must not rerun steps 2, 3 or 5.
+# Resource names changed (purpose-based names). Environments deployed before that must not rerun steps 2, 3 or 4.
 if ($changesAzure) {
-    $existing = @((Invoke-Az resource list -g $rg --query "[].name" -o json | Out-String) | ConvertFrom-Json)
+    # TSV, not JSON: Windows PowerShell 5.1 parses the text "[]" into one empty-array object, which counts as 1 item.
+    $existing = @(Invoke-Az resource list -g $rg --query "[].name" -o tsv | Where-Object { $_ })
     $rgTags = (Invoke-Az group show -n $rg --query tags -o json | Out-String) | ConvertFrom-Json
     $namingCurrent = ($rgTags -and $rgTags.naming -eq 'v2')
     if ($existing.Count -eq 0) {
@@ -95,8 +107,8 @@ if ($changesAzure) {
             Invoke-Az tag update --resource-id "/subscriptions/$sub/resourceGroups/$rg" --operation merge --tags naming=v2 -o none
         }
     }
-    if (-not $namingCurrent -and @($Step | Where-Object { $_ -in 2, 3, 5 }).Count -gt 0) {
-        throw "Resource group $rg was deployed with the previous resource names. Steps 2, 3 and 5 would create duplicate resources under the new names. Use -Step 1,4,6 here, or deploy to a new resource group (see docs/deployment.md, Naming)."
+    if (-not $namingCurrent -and @($Step | Where-Object { $_ -in 2, 3, 4 }).Count -gt 0) {
+        throw "Resource group $rg was deployed with the previous resource names. Steps 2, 3 and 4 would create duplicate resources under the new names. Use -Step 1,5,6 here, or deploy to a new resource group (see docs/deployment.md, Naming)."
     }
 }
 
@@ -113,7 +125,17 @@ if ($Step -contains 1) { Deploy-Step '01-network.bicep' ($base + $net) }
 if ($Step -contains 2) { Deploy-Step '02-storage-keyvault.bicep' $base }
 if ($Step -contains 3) { Deploy-Step '03-ai-ml.bicep' $base }
 if ($Step -contains 4) {
-    Deploy-Step '04-vpn-resolver.bicep' ($base + @(
+    # Groups are created on first run (or taken from RBAC_*_GROUP_ID); membership is managed in Entra afterwards.
+    $adminId = Get-OrCreateGroup "sg-$prefix-admins" $cfg.RBAC_ADMIN_GROUP_ID "Admins of the $prefix AI environment" -AddMe
+    $devId = Get-OrCreateGroup "sg-$prefix-developers" $cfg.RBAC_DEVELOPER_GROUP_ID "Developers of the $prefix AI environment" -AddMe
+    Write-Host "Admins: $adminId`nDevelopers: $devId"
+    Deploy-Step '04-rbac.bicep' @("prefix=$prefix", "adminIds=$adminId", "developerIds=$devId", 'principalType=Group')
+}
+
+# Access layer, chosen by ACCESS_MODE: vpn (this block), bastion, or both. Bastion is not built yet, so only vpn runs.
+# When Bastion exists it gets its own template (05-access-bastion.bicep); 'both' runs it alongside the VPN below.
+if ($Step -contains 5) {
+    Deploy-Step '05-access-vpn.bicep' ($base + @(
             "tenantId=$($cfg.AZURE_TENANT_ID)",
             "vpnGatewaySku=$($cfg.VPN_GATEWAY_SKU)",
             "vpnClientAddressPool=$($cfg.VPN_CLIENT_ADDRESS_POOL)",
@@ -121,14 +143,6 @@ if ($Step -contains 4) {
             "resolverInboundIp=$resolverIp"))
     # Hand the resolver IP to the VNet so VPN clients pick it up in their profile.
     Deploy-Step '01-network.bicep' ($base + $net + @("dnsServer=$resolverIp"))
-}
-
-if ($Step -contains 5) {
-    # Groups are created on first run (or taken from RBAC_*_GROUP_ID); membership is managed in Entra afterwards.
-    $adminId = Get-OrCreateGroup "sg-$prefix-admins" $cfg.RBAC_ADMIN_GROUP_ID "Admins of the $prefix AI environment" -AddMe
-    $devId = Get-OrCreateGroup "sg-$prefix-developers" $cfg.RBAC_DEVELOPER_GROUP_ID "Developers of the $prefix AI environment" -AddMe
-    Write-Host "Admins: $adminId`nDevelopers: $devId"
-    Deploy-Step '05-rbac.bicep' @("prefix=$prefix", "adminIds=$adminId", "developerIds=$devId", 'principalType=Group')
 }
 
 if ($Step -contains 6 -and -not $ValidateOnly) {
@@ -146,18 +160,20 @@ if ($Step -contains 6 -and -not $ValidateOnly) {
         Write-Host ("{0,-45} {1,-12} {2}" -f ($nic.pe -split '/')[-1], $nic.ip, ($nic.fqdns -join ', '))
     }
 
-    Write-Host "`n=== VPN client profile ===" -ForegroundColor Cyan
-    $gw = "vpng-$prefix"
-    Write-Host "Gateway:        $gw"
-    Write-Host "Tenant:         https://login.microsoftonline.com/$($cfg.AZURE_TENANT_ID)/"
-    Write-Host "Audience:       $($cfg.VPN_AAD_AUDIENCE)"
-    Write-Host "Issuer:         https://sts.windows.net/$($cfg.AZURE_TENANT_ID)/"
-    Write-Host "Client pool:    $($cfg.VPN_CLIENT_ADDRESS_POOL)"
-    Write-Host "DNS server:     $resolverIp (resolver inbound endpoint)"
-    $url = Invoke-Az network vnet-gateway vpn-client generate -g $rg -n $gw -o tsv
-    Write-Host "Profile zip:    $url  (AzureVPN\azurevpnconfig.xml, import into Azure VPN Client)"
-    $consent = (Invoke-Az ad sp list --filter "appId eq '$($cfg.VPN_AAD_AUDIENCE)'" -o json | Out-String) | ConvertFrom-Json
-    $consentState = if (@($consent).Count -gt 0) { 'granted (app exists in the tenant)' } else { 'app not in the tenant yet (an admin must approve it, or user consent may add it at first sign-in)' }
-    Write-Host "Admin consent:  $consentState"
-    Write-Host "Consent URL:    https://login.microsoftonline.com/$($cfg.AZURE_TENANT_ID)/oauth2/authorize?client_id=$($cfg.VPN_AAD_AUDIENCE)&response_type=code&redirect_uri=https://portal.azure.com&nonce=1234&prompt=admin_consent"
+    Write-Host "`n=== Access mode: $accessMode ===" -ForegroundColor Cyan
+    if ($accessMode -in 'vpn', 'both') {
+        $gw = "vpng-$prefix"
+        Write-Host "VPN gateway:    $gw"
+        Write-Host "Tenant:         https://login.microsoftonline.com/$($cfg.AZURE_TENANT_ID)/"
+        Write-Host "Audience:       $($cfg.VPN_AAD_AUDIENCE)"
+        Write-Host "Issuer:         https://sts.windows.net/$($cfg.AZURE_TENANT_ID)/"
+        Write-Host "Client pool:    $($cfg.VPN_CLIENT_ADDRESS_POOL)"
+        Write-Host "DNS server:     $resolverIp (resolver inbound endpoint)"
+        $url = Invoke-Az network vnet-gateway vpn-client generate -g $rg -n $gw -o tsv
+        Write-Host "Profile zip:    $url  (AzureVPN\azurevpnconfig.xml, import into Azure VPN Client)"
+        $consent = (Invoke-Az ad sp list --filter "appId eq '$($cfg.VPN_AAD_AUDIENCE)'" -o json | Out-String) | ConvertFrom-Json
+        $consentState = if (@($consent).Count -gt 0) { 'app exists in the tenant directory' } else { 'app not in the tenant directory (not needed unless VPN sign-in asks for admin approval)' }
+        Write-Host "VPN app consent: $consentState"
+        Write-Host "Consent URL:    https://login.microsoftonline.com/$($cfg.AZURE_TENANT_ID)/oauth2/authorize?client_id=$($cfg.VPN_AAD_AUDIENCE)&response_type=code&redirect_uri=https://portal.azure.com&nonce=1234&prompt=admin_consent (only if needed)"
+    }
 }

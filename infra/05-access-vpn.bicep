@@ -1,4 +1,4 @@
-// Step 4: DNS Private Resolver (inbound) and P2S VPN Gateway (OpenVPN + Entra ID).
+// Step 5, ACCESS_MODE=vpn: DNS Private Resolver (inbound) and P2S VPN Gateway (OpenVPN + Entra ID).
 import { resourceNames } from 'names.bicep'
 
 param prefix string

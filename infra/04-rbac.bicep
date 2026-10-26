@@ -1,4 +1,4 @@
-// Step 5: tiered RBAC for Entra groups (admin, developer). Key auth is disabled, so roles are the only way in.
+// Step 4: tiered RBAC for Entra groups (admin, developer). Key auth is disabled, so roles are the only way in.
 import { resourceNames } from 'names.bicep'
 
 param prefix string
