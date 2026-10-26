@@ -31,6 +31,9 @@ func resourceNames(prefix string, seed string) object => {
   acr: take('acr${replace(toLower(prefix), '-', '')}${uniqueString(seed)}', 50)
   search: 'srch-${prefix}-${take(uniqueString(seed), 6)}'
   aiServices: 'foundry-${prefix}-${take(uniqueString(seed), 6)}'
+  docIntelligence: 'docintel-${prefix}-${take(uniqueString(seed), 6)}'
+  customVisionTraining: 'customvision-train-${prefix}-${take(uniqueString(seed), 6)}'
+  customVisionPrediction: 'customvision-pred-${prefix}-${take(uniqueString(seed), 6)}'
   logAnalytics: 'log-${prefix}'
   appInsights: 'appi-${prefix}'
   mlWorkspace: 'mlw-${prefix}'

@@ -15,6 +15,8 @@ flowchart LR
     subgraph PE["services-subnet: private endpoints"]
         peAml["ML workspace"]
         peAis["AI Foundry"]
+        peDoc["Document Intelligence"]
+        peCv["Custom Vision (training + prediction)"]
         peSearch["AI Search"]
         peLake["Data Lake blob + dfs"]
         peMlSt["ML storage blob + file"]
@@ -38,6 +40,8 @@ flowchart LR
 | Azure Machine Learning workspace | `amlworkspace` | `privatelink.api.azureml.ms`, `privatelink.notebooks.azure.net` |
 | AI Foundry (AI Services / Azure OpenAI) | `account` | `privatelink.openai.azure.com`, `privatelink.cognitiveservices.azure.com`, `privatelink.services.ai.azure.com` |
 | AI Search | `searchService` | `privatelink.search.windows.net` |
+| Document Intelligence | `account` | `privatelink.cognitiveservices.azure.com` |
+| Custom Vision, training and prediction (two accounts) | `account` | `privatelink.cognitiveservices.azure.com` |
 | Data Lake (ADLS Gen2) | `blob`, `dfs` | `privatelink.blob.core.windows.net`, `privatelink.dfs.core.windows.net` |
 | ML default storage (also holds the Function deployment package) | `blob`, `file` | `privatelink.blob.core.windows.net`, `privatelink.file.core.windows.net` |
 | Key Vault (ML workspace) | `vault` | `privatelink.vaultcore.azure.net` |
@@ -68,6 +72,8 @@ The VNet address space is `10.0.0.0/16`. The resolver inbound endpoint uses the 
 - **Fourth subnet.** The brief called for three subnets. Flex Consumption VNet integration needs its own subnet delegated to `Microsoft.App/environments`, and a private endpoint subnet cannot be shared with it, so `func-integration-subnet` was added.
 - **Separate storage for Azure ML.** Azure ML does not support a hierarchical-namespace (Data Lake) account as its default storage, so the workspace uses its own standard account. The Function App's deployment package (`app-package` container) lives there too.
 - **AI Foundry uses the AI Services account kind.** It serves both Azure OpenAI and the Foundry APIs. That adds two DNS zones beyond the OpenAI one (`cognitiveservices` and `services.ai`).
+- **Document Intelligence and Custom Vision are separate accounts.** Each has its own endpoint, private endpoint and keys, even though the AI Services account also exposes document features. Document Intelligence is the `FormRecognizer` kind. Custom Vision needs two accounts, one for training (`CustomVision.Training`) and one for prediction (`CustomVision.Prediction`). All three reuse the `cognitiveservices` DNS zone and are deployed through `infra/modules/cognitive-account.bicep`.
+- **Custom Vision is being retired.** Microsoft will support it until 25 September 2028 and recommends Azure ML AutoML or Foundry models for new work. It is included because it was requested.
 - **Extra DNS zones.** `privatelink.notebooks.azure.net` (ML notebooks) and `privatelink.file.core.windows.net` (ML storage file share) are required by Azure ML and were added to the list in the brief.
 - **Azure ML network mode.** The workspace uses a managed network in `AllowInternetOutbound` mode. Public access to the workspace itself is disabled.
 - **Resolver as VNet DNS.** The DNS Private Resolver inbound endpoint is a static address and is also set as the VNet DNS server, so VPN clients receive it in their profile. Step 4 deploys step 1 a second time to set it.
@@ -79,7 +85,8 @@ The VNet address space is `10.0.0.0/16`. The resolver inbound endpoint uses the 
 - Public network access disabled on every PaaS service.
 - Storage: shared key access off, blob public access off, TLS 1.2 minimum.
 - Key Vault: RBAC authorization, soft delete, purge protection.
-- AI Services and AI Search: key authentication disabled (Entra ID only).
+- AI Services, Document Intelligence and AI Search: key authentication disabled (Entra ID only).
+- Custom Vision: key authentication is left on, because Entra support for its API was not verified. Public network access is still disabled, so keys only work from inside the network.
 - Container Registry: admin user off.
 - Function App: HTTPS only, identity-based storage access.
 - Azure ML: system-assigned identity, identity-based datastores.

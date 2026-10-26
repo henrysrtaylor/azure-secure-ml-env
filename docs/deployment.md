@@ -74,7 +74,7 @@ Run selected steps:
 |---|---|---|---|
 | 1 | `infra/01-network.bicep` | VNet, subnets, 12 private DNS zones and VNet links | |
 | 2 | `infra/02-storage-keyvault.bicep` | Data Lake, two Key Vaults, private endpoints | |
-| 3 | `infra/03-ai-ml.bicep` | ACR, AI Search, AI Foundry, ML workspace, Function App, private endpoints | |
+| 3 | `infra/03-ai-ml.bicep` | ACR, AI Search, AI Foundry, Document Intelligence, Custom Vision (training and prediction), ML workspace, Function App, private endpoints | |
 | 4 | `infra/04-vpn-resolver.bicep` | DNS Private Resolver, VPN Gateway, then step 1 again | The gateway typically takes 30 to 45 minutes. The repeat of step 1 sets the resolver as the VNet DNS server. |
 | 5 | `infra/05-rbac.bicep` | Creates the Entra groups if needed, adds you to both, assigns roles | Needs Owner or User Access Administrator. |
 | 6 | (script only) | Prints portal links, private endpoint IPs, VPN profile details | Read-only. Skips registration and takes about 20 seconds. |
@@ -159,6 +159,8 @@ Every resource is named `<type>-<purpose>-<environment prefix>`, so the name alo
 | Container Registry | `acr<prefix><hash>` | `acraisandbox...` |
 | AI Search | `srch-<prefix>-<hash>` | `srch-aisandbox-...` |
 | AI Foundry (AI Services) | `foundry-<prefix>-<hash>` | `foundry-aisandbox-...` |
+| Document Intelligence | `docintel-<prefix>-<hash>` | `docintel-aisandbox-...` |
+| Custom Vision training / prediction | `customvision-train-<prefix>-<hash>`, `customvision-pred-<prefix>-<hash>` | `customvision-train-aisandbox-...` |
 | Azure ML workspace | `mlw-<prefix>` | `mlw-aisandbox` |
 | Function App plan | `plan-func-<prefix>` | `plan-func-aisandbox` |
 | Function App | `func-<prefix>-<hash>` | `func-aisandbox-...` |
@@ -182,7 +184,7 @@ These resources bill continuously while they exist, whether or not they are used
 - Private endpoints (each has an hourly charge).
 - Log Analytics and Application Insights (usage based).
 
-Flex Consumption bills only for execution. Azure ML and AI Services bill on usage, and there is no compute or model deployment yet. Use the Azure Pricing Calculator for numbers in your region.
+Flex Consumption bills only for execution. Azure ML, AI Services, Document Intelligence and Custom Vision bill on usage, and there is no compute or model deployment yet. Use the Azure Pricing Calculator for numbers in your region.
 
 ## Update
 
@@ -230,4 +232,6 @@ Flex Consumption bills only for execution. Azure ML and AI Services bill on usag
 - **No workloads.** There is no function code, ML compute instance or cluster, model deployment or Foundry project. Notebook and VS Code features in Azure ML studio need a compute instance that you create. See [architecture.md](architecture.md#not-included).
 - **No service-to-service private connectivity.** See [architecture.md](architecture.md).
 - **Application Insights** accepts public ingestion.
+- **Custom Vision is retiring.** Microsoft supports it until 25 September 2028. Its accounts keep key authentication on, because Entra support for its API was not verified.
+- **New services need a new resource group in older environments.** Document Intelligence and Custom Vision are part of step 3, which the naming guard blocks on resource groups deployed before the naming convention. See [Naming](#naming).
 - **Windows only.** The script and commands target Windows PowerShell 5.1.

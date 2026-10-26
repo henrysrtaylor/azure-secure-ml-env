@@ -26,6 +26,8 @@ Roles are assigned only to these groups, never to individual users.
 | Key Vault (application) | Key Vault Administrator | Key Vault Secrets Officer (read and write) |
 | AI Search | Search Service Contributor, Search Index Data Contributor | same as admins |
 | AI Foundry | Cognitive Services Contributor, Cognitive Services OpenAI Contributor, Foundry User | same as admins (can create and manage model deployments) |
+| Document Intelligence | Cognitive Services Contributor, Cognitive Services User | same as admins |
+| Custom Vision (training and prediction accounts) | Cognitive Services Contributor, Cognitive Services Custom Vision Contributor | same as admins |
 | Container Registry | AcrPush | AcrPush |
 | Azure ML workspace | AzureML Data Scientist, AzureML Compute Operator | same as admins |
 | Function App | Website Contributor | Website Contributor |

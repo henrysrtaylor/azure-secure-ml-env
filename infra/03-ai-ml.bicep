@@ -168,6 +168,46 @@ module peAis 'modules/private-endpoint.bicep' = {
   }
 }
 
+// ---- Document Intelligence and Custom Vision (all share the cognitiveservices DNS zone, so chain them) ----
+module docIntel 'modules/cognitive-account.bicep' = {
+  name: 'docintelligence'
+  dependsOn: [peAis]
+  params: {
+    name: n.docIntelligence
+    kind: 'FormRecognizer'
+    location: location
+    subnetId: subnetId
+    zoneIds: [zoneId(privateDnsZones.cognitive)]
+  }
+}
+
+// Custom Vision keeps key auth on: Entra support for its API was not verified. Access is private-only.
+module customVisionTraining 'modules/cognitive-account.bicep' = {
+  name: 'customvision-training'
+  dependsOn: [docIntel]
+  params: {
+    name: n.customVisionTraining
+    kind: 'CustomVision.Training'
+    location: location
+    subnetId: subnetId
+    zoneIds: [zoneId(privateDnsZones.cognitive)]
+    disableLocalAuth: false
+  }
+}
+
+module customVisionPrediction 'modules/cognitive-account.bicep' = {
+  name: 'customvision-prediction'
+  dependsOn: [customVisionTraining]
+  params: {
+    name: n.customVisionPrediction
+    kind: 'CustomVision.Prediction'
+    location: location
+    subnetId: subnetId
+    zoneIds: [zoneId(privateDnsZones.cognitive)]
+    disableLocalAuth: false
+  }
+}
+
 // ---- Azure Machine Learning ----
 resource mlw 'Microsoft.MachineLearningServices/workspaces@2024-10-01' = {
   name: n.mlWorkspace
@@ -313,6 +353,9 @@ output privateEndpoints array = [
   { name: peAcr.outputs.name, dns: peAcr.outputs.dnsConfigs }
   { name: peSearch.outputs.name, dns: peSearch.outputs.dnsConfigs }
   { name: peAis.outputs.name, dns: peAis.outputs.dnsConfigs }
+  { name: docIntel.outputs.peName, dns: docIntel.outputs.dnsConfigs }
+  { name: customVisionTraining.outputs.peName, dns: customVisionTraining.outputs.dnsConfigs }
+  { name: customVisionPrediction.outputs.peName, dns: customVisionPrediction.outputs.dnsConfigs }
   { name: peMlw.outputs.name, dns: peMlw.outputs.dnsConfigs }
   { name: peFunc.outputs.name, dns: peFunc.outputs.dnsConfigs }
 ]

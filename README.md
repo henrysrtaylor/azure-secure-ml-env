@@ -7,9 +7,10 @@ A Bicep-based, private-only Azure environment for an AI engineering team. All Pa
 - `infra/names.bicep`: Shared resource naming and the list of private DNS zones, so every step derives identical names.
 - `infra/01-network.bicep`: Virtual network, subnets, and private DNS zones linked to the VNet.
 - `infra/02-storage-keyvault.bicep`: ADLS Gen2 storage account and two Key Vaults (ML workspace, application secrets) with private endpoints.
-- `infra/03-ai-ml.bicep`: Container Registry, AI Search, AI Foundry (AI Services / Azure OpenAI), Azure Machine Learning, and a Flex Consumption Function App with private endpoints.
+- `infra/03-ai-ml.bicep`: Container Registry, AI Search, AI Foundry (AI Services / Azure OpenAI), Document Intelligence, Custom Vision, Azure Machine Learning, and a Flex Consumption Function App with private endpoints.
 - `infra/04-vpn-resolver.bicep`: DNS Private Resolver with an inbound endpoint and a VPN Gateway (P2S, OpenVPN, Entra ID).
 - `infra/05-rbac.bicep`: Tiered roles (admin, developer) for Entra groups on each resource. Key authentication is disabled, so RBAC is required.
+- `infra/modules/cognitive-account.bicep`: Reusable Cognitive Services account (Document Intelligence, Custom Vision) with its private endpoint.
 - `infra/modules/private-endpoint.bicep`: Reusable private endpoint with DNS zone group.
 - `scripts/deploy.ps1`: Builds, validates, and deploys the steps in order, then prints portal links, private endpoint IPs, and VPN client profile details.
 - `.env.example`: Template for `.env`.
@@ -34,6 +35,7 @@ A Bicep-based, private-only Azure environment for an AI engineering team. All Pa
 azure-secure-ml-env/
 ├── infra/
 │   ├── modules/
+│   │   ├── cognitive-account.bicep     # Cognitive account + private endpoint
 │   │   └── private-endpoint.bicep      # Private endpoint + DNS zone group
 │   ├── names.bicep                     # Shared names and DNS zone list
 │   ├── 01-network.bicep                # VNet, subnets, private DNS zones
