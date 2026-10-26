@@ -1,6 +1,6 @@
 # RBAC
 
-Key authentication is disabled on the data services, so every user needs Azure roles in addition to network access (the VPN). Roles are granted to two Entra security groups, and you manage access by managing group membership.
+Key authentication is disabled on the data services, so every user needs Azure roles in addition to network access (the VPN or a Bastion VM). Roles are granted to two Entra security groups, and you manage access by managing group membership.
 
 ## Groups
 
@@ -93,8 +93,8 @@ Invite them first in the Entra admin center under **Users**, then **Invite exter
 ### What the new member must do
 
 1. Sign out and back in (`az login`, or the portal) so their token includes the new group. Roles can take several minutes to apply.
-2. Install the VPN client and import the profile. See [vpn-client-setup.md](vpn-client-setup.md).
-3. If sign-in says admin approval is required, a tenant admin must approve the Azure VPN Client app. See [vpn-client-setup.md](vpn-client-setup.md#grant-admin-consent).
+2. Connect. With VPN access, install the VPN client and import the profile (see [vpn-client-setup.md](vpn-client-setup.md)). With Bastion access, get a VM's username and password from an admin and open the VM in the portal (see [accessing-the-environment.md](accessing-the-environment.md)).
+3. With VPN access, if sign-in says admin approval is required, a tenant admin must approve the Azure VPN Client app. See [vpn-client-setup.md](vpn-client-setup.md#grant-admin-consent).
 
 ### Use an existing group instead
 
@@ -123,7 +123,8 @@ Assignments of type `ServicePrincipal` belong to the services' own managed ident
 - **Removed roles:** removing a role from `infra/04-rbac.bicep` does not delete the existing assignment.
 - **Guests:** external (B2B guest) users can be group members. Their sign-in name differs from their email, so look them up by email as shown above.
 - **Token refresh:** new memberships and roles apply after a fresh sign-in and can take several minutes.
-- **Service identities:** the Function App identity has Storage Blob Data Owner on the ML storage account and Key Vault Secrets User on the application vault. The ML workspace identity receives its roles from Azure when the workspace is created. These are not managed by step 4.
+- **Service identities:** the Function App identity has Storage Blob Data Owner on the ML storage account and Key Vault Secrets User on the application vault. Each Bastion VM's identity has Virtual Machine Contributor on that VM only, so it can deallocate itself. The ML workspace identity receives its roles from Azure when the workspace is created. These are not managed by step 4.
+- **Bastion:** admins and developers can open the VMs through Bastion because both groups have Reader on the resource group. Signing in to a VM uses its local username and password, not these roles. Admins can reset a VM password (Contributor on the resource group).
 
 ## Troubleshooting
 

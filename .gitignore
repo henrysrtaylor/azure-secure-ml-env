@@ -2,6 +2,7 @@
 .env
 .env.local
 *.env
+vm_passwords.jsonl
 
 # Downloaded VPN client profiles
 vpnprofile/

@@ -5,22 +5,22 @@ Every service in this environment is private-only, with public network access di
 - **VPN**: a Point-to-Site VPN from the user's own computer. For trusted teams.
 - **Bastion**: browser-based remote desktop into a VM inside the network. For multiple third-party users.
 
-You choose which to deploy with `ACCESS_MODE` in `.env` (see [Choosing at deployment](#choosing-at-deployment)).
+You choose which to deploy with `ACCESS_MODE` in `.env`: `vpn`, `bastion`, or `both` to run the two side by side (see [Choosing at deployment](#choosing-at-deployment)).
 
 ## At a glance
 
 | | VPN | Bastion |
 |---|---|---|
 | Intended for | Trusted teams | Multiple third-party users |
-| Status | Deployed and verified | Planned, not built yet |
+| Status | Deployed and verified | Deployed, not yet tested end to end |
 | What the user needs | Azure VPN Client installed, an imported profile, an Entra account | A web browser, a portal sign-in, and the username and password for their VM |
 | Where the user works | On their own computer, with their own tools | On a VM in the environment, through the browser |
-| Sign-in | Microsoft Entra ID, so MFA and Conditional Access apply | Entra guest account for the portal, then a local username and password for the VM |
+| Sign-in | Microsoft Entra ID, so MFA and Conditional Access apply | Entra account for the portal (member or external guest), then a local username and password for the VM |
 | Network reach | The whole virtual network (everything their roles allow) | Whatever the VM can reach |
 | Data on the user's device | Yes, it can be copied to their computer | No, it stays on the VM (Bastion Standard can also block clipboard and file transfer) |
 | Install on user devices | Yes | No |
 | Billing | VPN Gateway and DNS resolver, hourly | Bastion host and one VM per user, hourly |
-| Guide | [vpn-client-setup.md](vpn-client-setup.md) | [bastion-considerations.md](bastion-considerations.md) |
+| Guide | [vpn-client-setup.md](vpn-client-setup.md) | This document |
 
 ## VPN: for trusted teams
 
@@ -48,16 +48,16 @@ Azure Bastion gives a remote desktop session in the browser, into a VM that sits
 - Access should be easy to hand out and to remove: create the VMs, give each user their credentials, delete the VMs when finished.
 
 **How it works**
-1. An admin sets how many VMs to create (`VM_COUNT`). Each VM gets its own username and a generated password. See [bastion-considerations.md](bastion-considerations.md).
+1. An admin sets how many VMs to create (`VM_COUNT`). Each VM (`vm-<prefix>-NN`) gets its own username (`evtNN`) and a generated password. Step 5 prints them once and saves them to `vm_passwords.jsonl` next to `.env` (git-ignored), because Azure cannot show them again. Admins can reset a password in the portal (VM, Help, Reset password).
 2. The user signs in to the Azure portal, opens their VM, and chooses Connect, then Bastion.
 3. They enter that VM's username and password. Bastion does not map users to VMs, so the credentials are what grant access to that machine.
 4. Their tools run on the VM. To use an Azure service from the VM they sign in with their own Entra account, so the roles they have still decide what they can do.
 
 **Things to know**
-- It is not built yet. Setting `ACCESS_MODE` to `bastion` or `both` is refused by the deploy script until it is.
+- Setting `ACCESS_MODE` to `bastion` or `both` deploys Bastion (`BASTION_SKU`, Basic by default) and the VMs. Each VM shuts down daily at `VM_SHUTDOWN_TIME` and after `VM_IDLE_SHUTDOWN_MINUTES` with no active session, and is deallocated so compute stops billing. A VM does not start when someone connects, so an admin starts it in the portal.
 - VM sign-in uses a local password, so there is no MFA at the VM. Mitigate with long random passwords, short lifetimes and deleting the VMs when finished.
 - Each VM costs money while it exists, and Bastion bills hourly whether or not anyone is connected.
-- The open points (SKU, VM size, shareable links, guest sign-in) are tracked in [bastion-considerations.md](bastion-considerations.md).
+- Bastion Basic cannot disable clipboard or file transfer. Bastion Standard can.
 
 ## Which should I use?
 
@@ -77,19 +77,18 @@ Step 5 of `./scripts/deploy.ps1` is the access layer. `ACCESS_MODE` in `.env` se
 | `ACCESS_MODE` | Deploys | Status |
 |---|---|---|
 | `vpn` | DNS Private Resolver and VPN Gateway (default) | Built |
-| `bastion` | Bastion and the user VMs | Planned |
-| `both` | The VPN and Bastion side by side | Planned |
+| `bastion` | Bastion and the user VMs | Built |
+| `both` | The VPN and Bastion side by side | Built |
 
 Steps 1 to 4 (the infrastructure and the roles) are the same whichever you choose. See [deployment.md](deployment.md) for the full flow.
 
 ## Access path and permissions are separate
 
-Both options only provide a network path in. What a person can do once they are in is decided by their Azure roles. People join the admins or developers group, or a group you create for third parties. See [rbac.md](rbac.md). Give third-party users the narrowest roles that let them do their work.
+Both options only provide a network path in. What a person can do once they are in is decided by their Azure roles. Step 4 manages two groups, admins and developers (see [rbac.md](rbac.md)). Both can open the VMs through Bastion, because both have Reader on the resource group, which the portal needs. People who should have narrower access than the developers tier need a group of your own with roles you assign, which this repository does not create. Give third-party users the narrowest roles that let them do their work.
 
 ## Related documents
 
 - [vpn-client-setup.md](vpn-client-setup.md): installing the VPN client and connecting.
-- [bastion-considerations.md](bastion-considerations.md): planning notes for Bastion.
 - [rbac.md](rbac.md): groups, roles, adding and removing people.
 - [architecture.md](architecture.md): what is deployed and why.
 - [deployment.md](deployment.md): requirements, configuration, running and verifying.

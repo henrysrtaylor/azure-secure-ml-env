@@ -18,7 +18,8 @@ function Install-FromUrl($name, $url, $file, $filePath, $arguments) {
         Log "downloading $name"
         Invoke-WebRequest -Uri $url -OutFile $target -UseBasicParsing
         Log "installing $name"
-        $proc = Start-Process -FilePath $filePath -ArgumentList ($arguments -replace '__FILE__', $target) -Wait -PassThru
+        $exe = $filePath -replace '__FILE__', $target
+        $proc = Start-Process -FilePath $exe -ArgumentList ($arguments -replace '__FILE__', $target) -Wait -PassThru
         Log "$name finished with exit code $($proc.ExitCode)"
     }
     catch { Log "$name failed: $_" }

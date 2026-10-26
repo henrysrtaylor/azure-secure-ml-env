@@ -209,6 +209,17 @@ if ($Step -contains 5) {
                 Write-Host ('{0,-18} user: evt{1:d2}   password: {2}' -f $vmName, $num, $passwords[$i])
             }
             Write-Host 'Admins can reset a password in the Azure portal: VM, Help, Reset password.'
+            # Azure never returns a VM password later, so keep them next to .env (git-ignored). Later runs update only the VMs they create.
+            $pwFile = Join-Path $PSScriptRoot '..\vm_passwords.jsonl'
+            $kept = @(if (Test-Path $pwFile) { Get-Content $pwFile | Where-Object { $_.Trim() } })
+            $lines = for ($i = 0; $i -lt $newVms; $i++) {
+                $num = $existingVms + $i + 1
+                $vmName = 'vm-{0}-{1:d2}' -f $prefix, $num
+                $kept = @($kept | Where-Object { ($_ | ConvertFrom-Json).vm -ne $vmName })
+                [ordered]@{ vm = $vmName; user = ('evt{0:d2}' -f $num); password = $passwords[$i] } | ConvertTo-Json -Compress
+            }
+            Set-Content -Path $pwFile -Value (@($kept) + @($lines)) -Encoding ASCII
+            Write-Host "Saved to $pwFile"
         }
     }
 }

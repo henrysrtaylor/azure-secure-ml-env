@@ -6,7 +6,7 @@ Values in angle brackets come from your `.env` or the step 6 output (`./scripts/
 
 ## Prerequisites
 
-1. Tenant admin consent for the Azure VPN Client app is **not required in every tenant**. In the reference tenant a non-admin guest account connected without it, and the app never appeared in the tenant's directory. Import the profile and try to connect first. Only if sign-in says admin approval is required, follow [Grant admin consent](#grant-admin-consent) below. It is one time per tenant, not per user.
+1. Tenant admin consent for the Azure VPN Client app is **not required in every tenant**. Import the profile and try to connect first. Only if sign-in says admin approval is required, follow [Grant admin consent](#grant-admin-consent) below. It is one time per tenant, not per user.
 2. Your Microsoft Entra account (member or B2B guest) is in the tenant. Your device does not need to be domain joined.
 3. Admin access on your machine to install the VPN client.
 4. Membership in one of the environment's groups, otherwise you can connect but are not authorized on any service. See [rbac.md](rbac.md). After being added, sign out and back in (`az login`, and the portal) so your token includes the new group. Connecting to the VPN itself does not depend on the groups.
@@ -45,7 +45,7 @@ Step 6 of the deploy script runs this check too.
 
    > Please approve the Microsoft app "Azure VPN Client" (app ID `c632b3df-fb67-4d84-bdcf-b95ad541b5c8`) for our tenant `<tenant_id>`, by opening the consent URL in docs/vpn-client-setup.md and selecting Accept. It is a Microsoft app used for VPN sign-in, and it needs only the sign-in and basic profile permissions.
 
-3. **Check the result** with the `az ad sp list` command above. An empty result means the app has not been added to the tenant directory. That alone does not mean sign-in will fail: in the reference tenant the result stayed empty after a successful connection.
+3. **Check the result** with the `az ad sp list` command above. An empty result means the app has not been added to the tenant directory. That alone does not mean sign-in will fail: the app can work without ever appearing there.
 
 The environment's Azure subscription and the Entra tenant are linked, so approval has to happen in that tenant. It cannot be done from another tenant.
 
@@ -115,7 +115,7 @@ Then open `https://ml.azure.com` or `https://portal.azure.com` and browse to the
 ## Notes
 
 - **Guests:** external (B2B guest) accounts can be used, but guest sign-in to the VPN was not verified. See the troubleshooting table.
-- **Verification:** the Azure VPN Client connection, private name resolution and TCP reachability of the private endpoints were verified from a Windows 11 machine on a personal home network, using an account that is an external guest in the tenant. Linux is not covered. The macOS client, other networks and the users who connect after you were not tested. Use the checks in [Verify](#verify) as the acceptance test.
+- **Verification status:** the Azure VPN Client connection, private name resolution and TCP reachability of the private endpoints were verified from one Windows 11 machine, with an account that is an external guest in the tenant. Linux is not covered. The macOS client, other networks and other tenants were not tested. Use the checks in [Verify](#verify) as the acceptance test.
 - **Linux is not supported.** The Azure VPN Client for Linux was retired on 31 August 2026, and the OpenVPN and strongSwan clients do not support Microsoft Entra ID sign-in with this gateway. Linux users need a Windows or macOS machine, such as a virtual machine or remote desktop.
 - **Supported platforms:** Windows 11 (x64, x86, ARM64) and macOS 12 to 15 (x64, Arm64). The macOS client is not available in France and China.
 - **Permissions on Windows:** the Azure VPN Client must be allowed to run in the background. In the client, **... > Prerequisites > Run Prerequisites Test** reports anything missing.

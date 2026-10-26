@@ -10,10 +10,10 @@ How to deploy, verify, update and remove the environment, plus everything that c
 | Azure CLI | Required. Install from [Microsoft](https://learn.microsoft.com/cli/azure/install-azure-cli). |
 | Bicep | Install with `az bicep install`. |
 | Git | To clone the repository. |
-| Azure subscription | Quota in your chosen region for the VPN Gateway SKU `VpnGw1AZ`, Flex Consumption (`FC1`), Azure AI Services (`S0`), AI Search (`standard`) and Container Registry (`Premium`). The region must support availability zones for `VpnGw1AZ`. |
+| Azure subscription | Quota in your chosen region for Flex Consumption (`FC1`), Azure AI Services (`S0`), AI Search (`basic`) and Container Registry (`Premium`). For VPN access, the VPN Gateway SKU `VpnGw1AZ`, in a region that supports availability zones. For Bastion access, the VM size (`Standard_B2ms` by default) for `VM_COUNT` VMs. |
 | Azure permissions | Owner on the subscription, or Contributor plus User Access Administrator. Contributor alone cannot create role assignments, so step 3 and step 4 fail without the second role. |
-| Entra permissions | Permission to create groups, or existing groups whose object IDs you put in `.env`. |
-| Tenant admin | Only if VPN sign-in asks for it: a Global Administrator, Privileged Role Administrator or Cloud Application Administrator approves the Azure VPN Client app. It was not needed for a guest account in the reference tenant. See [vpn-client-setup.md](vpn-client-setup.md#grant-admin-consent). |
+| Entra permissions | Permission to create groups, or existing groups whose object IDs you put in `.env`. The deploying account must be able to get a Microsoft Graph token. If your tenant's Conditional Access requires a compliant device, sign in from one (see Troubleshooting). |
+| Tenant admin | Only if VPN sign-in asks for it: a Global Administrator, Privileged Role Administrator or Cloud Application Administrator approves the Azure VPN Client app. Not every tenant needs it. See [vpn-client-setup.md](vpn-client-setup.md#grant-admin-consent). |
 | Network access | The machine running the script needs internet access to Azure. It does **not** need the VPN, because deployment uses the public Azure control plane. |
 
 ## Configure
@@ -37,12 +37,22 @@ Edit `.env`. `.env` is git-ignored and holds your values.
 | `GATEWAY_SUBNET_PREFIX` | `GatewaySubnet` | Default `10.0.2.0/24`. |
 | `DNS_INBOUND_SUBNET_PREFIX` | Resolver subnet | Default `10.0.3.0/28`. The resolver uses the first usable address (`10.0.3.4`), which the script derives. |
 | `FUNCTION_INTEGRATION_SUBNET_PREFIX` | Function VNet integration subnet | Default `10.0.4.0/24`. |
-| `ACCESS_MODE` | How people connect (step 5) | `vpn` is the only mode built, and the default when blank. `bastion` and `both` are planned and refused by the script until built. See [accessing-the-environment.md](accessing-the-environment.md) for when to use each and [bastion-considerations.md](bastion-considerations.md) for the plan. |
+| `ACCESS_MODE` | How people connect (step 5) | `vpn` (default when blank), `bastion` or `both`. See [accessing-the-environment.md](accessing-the-environment.md) for when to use each. |
 | `RBAC_ADMIN_GROUP_ID` | Existing admins group | Leave blank to create `sg-<prefix>-admins`. |
 | `RBAC_DEVELOPER_GROUP_ID` | Existing developers group | Leave blank to create `sg-<prefix>-developers`. |
-| `VPN_GATEWAY_SKU` | Gateway SKU | Default `VpnGw1AZ`. |
+| `VPN_GATEWAY_SKU` | Gateway SKU | Used with `vpn` and `both`. Default `VpnGw1AZ`. |
 | `VPN_CLIENT_ADDRESS_POOL` | Address range handed to VPN clients | Default `172.16.201.0/24`. Must not overlap the VNet. |
 | `VPN_AAD_AUDIENCE` | Azure VPN Client app ID | Default is the public-cloud ID `c632b3df-fb67-4d84-bdcf-b95ad541b5c8`. Sovereign clouds use a different ID. |
+| `BASTION_SKU` | Bastion SKU | Used with `bastion` and `both`. `Basic` (default) or `Standard`. Only Standard can disable clipboard and file transfer. |
+| `BASTION_SUBNET_PREFIX` | `AzureBastionSubnet` | Default `10.0.5.0/26`. Azure requires `/26` or larger. |
+| `VM_SUBNET_PREFIX` | Subnet for the VMs | Default `10.0.6.0/24`. |
+| `VM_COUNT` | Number of VMs, one per user | Default `3`, maximum `20`. Raising it later adds VMs. Lowering it does not delete any. |
+| `VM_SIZE` | VM size | Default `Standard_B2ms`. The VMs run Windows Server 2022. |
+| `VM_DISK_GB` | OS disk size | Default `128`. |
+| `VM_SHUTDOWN_TIME` | Daily shutdown as `HHmm` in `VM_SHUTDOWN_TIMEZONE`, or `none` | Default `1900`. The VM is deallocated, so compute stops billing. |
+| `VM_SHUTDOWN_TIMEZONE` | Time zone for the daily shutdown | Default `UTC`. Use a Windows time zone ID. |
+| `VM_IDLE_SHUTDOWN_MINUTES` | Minutes with no active session and no load before a VM deallocates itself | Default `30`. `0` turns it off. |
+| `VM_INSTALL_TOOLS` | Install VS Code, Python, Git and the Azure CLI on each VM | Default `true`. A failed install is logged on the VM (`C:\ProvisionTools.log`) and never fails the deployment. |
 
 Treat the network ranges as fixed after the first deployment. Subnets that contain private endpoints, a gateway or a delegated service cannot be resized or moved in place.
 
@@ -79,23 +89,35 @@ The steps fall into three stages. The infrastructure comes first (steps 1 to 3),
 | 2 | `infra/02-storage-keyvault.bicep` | Data Lake, two Key Vaults, private endpoints | |
 | 3 | `infra/03-ai-ml.bicep` | ACR, AI Search, AI Foundry, Document Intelligence, Custom Vision (training and prediction), ML workspace, Function App, private endpoints | |
 | 4 | `infra/04-rbac.bicep` | Creates the Entra groups if needed, adds you to both, assigns roles | Needs Owner or User Access Administrator. |
-| 5 | `infra/05-access-vpn.bicep` (`ACCESS_MODE=vpn`) | DNS Private Resolver, VPN Gateway, then step 1 again | The gateway typically takes 30 to 45 minutes. The repeat of step 1 sets the resolver as the VNet DNS server. Bastion is planned for the other `ACCESS_MODE` values and is not built yet. |
+| 5 | `infra/05-access-vpn.bicep` and `infra/05-access-bastion.bicep`, by `ACCESS_MODE` | See [Step 5 by access mode](#step-5-by-access-mode) | The VPN Gateway typically takes 30 to 45 minutes. |
 | 6 | (script only) | Prints portal links, private endpoint IPs, and the connection details for the chosen access mode | Read-only. Skips registration and takes about 20 seconds. |
+
+### Step 5 by access mode
+
+| `ACCESS_MODE` | What step 5 does |
+|---|---|
+| `vpn` | Deploys the DNS Private Resolver and the VPN Gateway, then reruns step 1 to set the resolver as the VNet DNS server. |
+| `bastion` | Reruns step 1 to add the Bastion and VM subnets, then deploys the Bastion host and the VMs. |
+| `both` | Both of the above, in one run. |
+
+The Bastion subnets are part of the step 1 template, because redeploying the VNet without them would remove them.
+
+For Bastion access the script generates a long random password for each new VM and passes it to the template as a secure parameter. It prints a table of VM names, usernames (`evtNN`) and passwords once, and saves the same data to `vm_passwords.jsonl` next to `.env` (git-ignored, one JSON object per line with `vm`, `user` and `password`). Azure cannot show a VM password later, so keep that file safe. Admins can also reset a password in the portal (VM, Help, Reset password). Azure does not allow changing an admin password through a redeployment, so a rerun only creates and records VMs that do not exist yet. VM names are `vm-<prefix>-NN`.
 
 Before step 1 the script also:
 - Registers the required resource providers if they are not registered.
 - Registers the `Microsoft.Network/AllowBringYourOwnPublicIpAddress` preview feature, which the VPN Gateway's public IP needs, and waits for it. Registration can take several minutes the first time.
-- Creates the resource group.
+- Creates the resource group if it does not exist, and tags a new, empty one `naming=v2` (see [Naming](#naming)).
 - Retries any `az` call up to three times, to ride out transient connection resets.
 
 ## After deployment (manual steps)
 
 The script cannot do these:
 
-1. **Admin consent, only if needed.** Try the VPN first. If sign-in says admin approval is required, a tenant admin approves the Azure VPN Client app using [vpn-client-setup.md](vpn-client-setup.md#grant-admin-consent). Once per tenant.
+1. **Admin consent, only if needed (VPN).** Try the VPN first. If sign-in says admin approval is required, a tenant admin approves the Azure VPN Client app using [vpn-client-setup.md](vpn-client-setup.md#grant-admin-consent). Once per tenant.
 2. **Add people** to `sg-<prefix>-admins` or `sg-<prefix>-developers`. See [rbac.md](rbac.md).
 3. **Sign out and back in** (`az login`, and the portal) so tokens include your new group memberships.
-4. **Generate the VPN profile** (admins only) and share it, then each user installs the client and connects. See [vpn-client-setup.md](vpn-client-setup.md).
+4. **Give people access.** VPN: generate the VPN profile (admins only) and share it, then each user installs the client and connects. See [vpn-client-setup.md](vpn-client-setup.md). Bastion: hand each user their VM's username and password from `vm_passwords.jsonl`, and start the VMs in the portal when they are needed (they shut down daily and when idle).
 5. **Verify** with the checks below.
 
 ## Verify the deployment
@@ -122,16 +144,23 @@ az keyvault list -g <rg> --query "[].{name:name,public:properties.publicNetworkA
 az acr list -g <rg> --query "[].{name:name,public:publicNetworkAccess}" -o table
 ```
 
-Gateway settings:
+Gateway settings (VPN access):
 
 ```powershell
 az network vnet-gateway show -g <rg> -n vpng-<prefix> --query "{state:provisioningState,sku:sku.name,protocols:vpnClientConfiguration.vpnClientProtocols,auth:vpnClientConfiguration.vpnAuthenticationTypes}" -o json
 ```
 
-VNet DNS server is the resolver address:
+VNet DNS server is the resolver address (VPN access):
 
 ```powershell
 az network vnet show -g <rg> -n vnet-<prefix> --query "dhcpOptions.dnsServers" -o tsv
+```
+
+Bastion host and VMs (Bastion access). Every VM should show `Succeeded`. The tool install and idle shutdown results are in `C:\ProvisionTools.log` and `C:\ProgramData\IdleShutdown` on each VM:
+
+```powershell
+az network bastion list -g <rg> --query "[].[name,sku.name,provisioningState]" -o tsv
+az vm list -g <rg> --query "[].[name,provisioningState]" -o tsv
 ```
 
 Role assignments for the two groups (the parentheses matter in Windows PowerShell 5.1):
@@ -151,42 +180,48 @@ Then open `https://ml.azure.com` and sign in.
 
 ## Naming
 
-Every resource is named `<type>-<purpose>-<prefix>`, so the name alone says what it is. `<prefix>` is the `NAME_PREFIX` value in `.env`, and it is the same value everywhere these docs say "prefix". A short hash from the resource group ID is added only where Azure needs a globally unique name. Names are defined in one place, `infra/names.bicep`. Examples use the prefix `aisandbox`.
+Every resource is named `<type>-<purpose>-<prefix>`, so the name alone says what it is. `<prefix>` is the `NAME_PREFIX` value in `.env`, and it is the same value everywhere these docs say "prefix". A short hash from the resource group ID is added only where Azure needs a globally unique name. Names are defined in one place, `infra/names.bicep`. Examples use the prefix `demo`.
 
 | Resource | Pattern | Example |
 |---|---|---|
-| Virtual network | `vnet-<prefix>` | `vnet-aisandbox` |
-| Data Lake storage | `stlake<prefix><hash>` | `stlakeaisandbox...` |
-| ML workspace storage (also holds the Function deployment package) | `stmlws<prefix><hash>` | `stmlwsaisandbox...` |
-| Key Vault for the ML workspace | `kv-ml-<prefix>-<hash>` | `kv-ml-aisandbox-...` |
-| Key Vault for application and team secrets | `kv-app-<prefix>-<hash>` | `kv-app-aisandbox-...` |
-| Container Registry | `acr<prefix><hash>` | `acraisandbox...` |
-| AI Search | `srch-<prefix>-<hash>` | `srch-aisandbox-...` |
-| AI Foundry (AI Services) | `foundry-<prefix>-<hash>` | `foundry-aisandbox-...` |
-| Document Intelligence | `docintel-<prefix>-<hash>` | `docintel-aisandbox-...` |
-| Custom Vision training / prediction | `customvision-train-<prefix>-<hash>`, `customvision-pred-<prefix>-<hash>` | `customvision-train-aisandbox-...` |
-| Azure ML workspace | `mlw-<prefix>` | `mlw-aisandbox` |
-| Function App plan | `plan-func-<prefix>` | `plan-func-aisandbox` |
-| Function App | `func-<prefix>-<hash>` | `func-aisandbox-...` |
-| Log Analytics, Application Insights | `log-<prefix>`, `appi-<prefix>` | `log-aisandbox` |
-| DNS Private Resolver | `dnspr-<prefix>` | `dnspr-aisandbox` |
-| VPN Gateway and its public IP | `vpng-<prefix>`, `pip-vpng-<prefix>` | `vpng-aisandbox` |
-| Private endpoints | `pe-<resource name>[-<sub-resource>]` | `pe-kv-app-aisandbox-...` |
-| Entra groups | `sg-<prefix>-admins`, `sg-<prefix>-developers` | `sg-aisandbox-admins` |
+| Virtual network | `vnet-<prefix>` | `vnet-demo` |
+| Data Lake storage | `stlake<prefix><hash>` | `stlakedemo...` |
+| ML workspace storage (also holds the Function deployment package) | `stmlws<prefix><hash>` | `stmlwsdemo...` |
+| Key Vault for the ML workspace | `kv-ml-<prefix>-<hash>` | `kv-ml-demo-...` |
+| Key Vault for application and team secrets | `kv-app-<prefix>-<hash>` | `kv-app-demo-...` |
+| Container Registry | `acr<prefix><hash>` | `acrdemo...` |
+| AI Search | `srch-<prefix>-<hash>` | `srch-demo-...` |
+| AI Foundry (AI Services) | `foundry-<prefix>-<hash>` | `foundry-demo-...` |
+| Document Intelligence | `docintel-<prefix>-<hash>` | `docintel-demo-...` |
+| Custom Vision training / prediction | `customvision-train-<prefix>-<hash>`, `customvision-pred-<prefix>-<hash>` | `customvision-train-demo-...` |
+| Azure ML workspace | `mlw-<prefix>` | `mlw-demo` |
+| Function App plan | `plan-func-<prefix>` | `plan-func-demo` |
+| Function App | `func-<prefix>-<hash>` | `func-demo-...` |
+| Log Analytics, Application Insights | `log-<prefix>`, `appi-<prefix>` | `log-demo` |
+| DNS Private Resolver | `dnspr-<prefix>` | `dnspr-demo` |
+| VPN Gateway and its public IP | `vpng-<prefix>`, `pip-vpng-<prefix>` | `vpng-demo` |
+| Bastion, its public IP and its network security group | `bas-<prefix>`, `pip-bas-<prefix>`, `nsg-bas-<prefix>` | `bas-demo` |
+| VMs and their network interfaces | `vm-<prefix>-NN`, `nic-vm-<prefix>-NN` | `vm-demo-01` |
+| Private endpoints | `pe-<resource name>[-<sub-resource>]` | `pe-kv-app-demo-...` |
+| Entra groups | `sg-<prefix>-admins`, `sg-<prefix>-developers` | `sg-demo-admins` |
 
 Storage account and registry names cannot contain hyphens, so the prefix is used without them.
 
-**Environments deployed before this convention** used `kv-<prefix>-...` and `kva-<prefix>-...` for the Key Vaults, `stml<prefix>...` for the ML storage, `ais-<prefix>-...` for AI Foundry and `plan-<prefix>` for the plan. Azure cannot rename these resources, and the ML workspace cannot switch Key Vault, so rerunning steps 2, 3 or 4 there would create duplicates. The deploy script refuses to do so: it marks resource groups created with the new names by a `naming=v2` tag, and stops steps 2, 3 and 4 on any resource group that has resources but no tag. Steps 1, 5 and 6 are unaffected. To adopt the new names, deploy to a new resource group (set a new `RESOURCE_GROUP_NAME`, and a new `NAME_PREFIX` if the old vaults are still soft-deleted) and tear the old one down.
+**Resource groups deployed with an earlier version of this repository** used different names (for example `kva-<prefix>-...` for the application Key Vault and `ais-<prefix>-...` for AI Foundry). Azure cannot rename these resources, and the ML workspace cannot switch Key Vault, so rerunning steps 2, 3 or 4 there would create duplicates. The deploy script refuses to do so: it marks resource groups it creates with a `naming=v2` tag, and stops steps 2, 3 and 4 on any resource group that has resources but no tag. Steps 1, 5 and 6 are unaffected. To adopt the current names, deploy to a new resource group (set a new `RESOURCE_GROUP_NAME`, and a new `NAME_PREFIX` if the old vaults are still soft-deleted) and tear the old one down.
 
 ## Cost
 
 These resources bill continuously while they exist, whether or not they are used:
-- VPN Gateway (`VpnGw1AZ`) and its public IP.
-- DNS Private Resolver inbound endpoint.
+- VPN Gateway (`VpnGw1AZ`) and its public IP (VPN access).
+- DNS Private Resolver inbound endpoint (VPN access).
+- Bastion host and its public IP (Bastion access). It bills hourly whether or not anyone is connected, and only deleting the host stops it.
 - AI Search (`basic`).
 - Container Registry (`Premium`).
 - Private endpoints (each has an hourly charge).
 - Log Analytics and Application Insights (usage based).
+- The VM disks (Bastion access), even while the VMs are deallocated.
+
+VMs bill for compute only while running. The daily shutdown and the idle shutdown deallocate them, which stops compute billing. Shutting Windows down from inside the VM leaves it `Stopped` and still billed, so use the portal's Stop button or let the idle shutdown do it. Starting a VM is a manual step in the portal.
 
 Flex Consumption bills only for execution. Azure ML, AI Services, Document Intelligence and Custom Vision bill on usage, and there is no compute or model deployment yet. Use the Azure Pricing Calculator for numbers in your region.
 
@@ -196,6 +231,8 @@ Flex Consumption bills only for execution. Azure ML, AI Services, Document Intel
 - Changing role lists in `infra/04-rbac.bicep` adds assignments but does not remove old ones. See [rbac.md](rbac.md).
 - Changing `VNET_ADDRESS_SPACE` or a subnet prefix after the first deployment will fail or require recreating the environment.
 - After changing the VNet DNS server or gateway settings, generate and import a new VPN profile.
+- Switching `ACCESS_MODE` and rerunning step 5 adds the other access layer. It does not remove the one already deployed. To remove it, delete its resources (the VPN Gateway and resolver, or the Bastion host and VMs) by hand.
+- Changing VM settings (size, disk, shutdown time, idle minutes) does not change existing VMs, only VMs created afterwards. The script counts VMs by the highest number that exists (`vm-<prefix>-NN`), so to recreate VMs delete the highest-numbered ones first, then rerun step 5.
 
 ## Tear down
 
@@ -210,7 +247,8 @@ Flex Consumption bills only for execution. Azure ML, AI Services, Document Intel
    - Deleted AI Services accounts can be purged with `az cognitiveservices account purge`.
    - Azure ML workspaces are soft deleted for 14 days and keep their name. The workspace is named `mlw-<prefix>`, so redeploying with the same prefix inside that window fails with "Soft-deleted workspace exists". Delete the workspace permanently when you tear down (in the portal, tick **Delete the workspace permanently**), or permanently delete it afterwards under Azure Machine Learning, **Recently deleted**. Otherwise use a new `NAME_PREFIX`.
 3. Delete the Entra groups if you no longer need them (`az ad group delete --group <name>`). They are not part of the resource group.
-4. The provider and feature registrations are subscription-wide and are left in place.
+4. Delete `vm_passwords.jsonl`, whose entries no longer match any VM.
+5. The provider and feature registrations are subscription-wide and are left in place.
 
 ## Troubleshooting
 
@@ -228,17 +266,17 @@ Flex Consumption bills only for execution. Azure ML, AI Services, Document Intel
 | In Azure ML studio, Notebooks, the VS Code option is greyed out | It needs a running compute instance, and none is deployed. In studio go to Manage, Compute, Compute instances, New, wait for Running, then select it in Notebooks. Requires the VPN and the admins or developers group (AzureML Compute Operator). Quota and first-time managed network setup in your region were not tested. |
 | `-ValidateOnly` fails on step 2 or later on a fresh subscription | Expected. Those steps need earlier resources to exist. Deploy step by step. |
 | Step 5 appears stuck | The VPN Gateway takes 30 to 45 minutes. |
-| `ACCESS_MODE=bastion needs Bastion, which is not built yet` | Bastion access is planned, not built. Set `ACCESS_MODE="vpn"` in `.env`. See [bastion-considerations.md](bastion-considerations.md). |
+| Step 3 fails with `InvalidResponseFromPrivateLinkService` on the AI Foundry private endpoint, and rerunning does not help | The endpoint is stuck in a `Failed` state although the account itself is `Succeeded`. Delete the endpoint (`az network private-endpoint delete -g <rg> -n pe-foundry-<prefix>-<hash>`) and rerun `./scripts/deploy.ps1 -Step 3`. |
+| `AADSTS53000 ... Device is not in required device state: compliant` in step 4 or 6 | Conditional Access requires a compliant device for the Microsoft Graph token the script needs to create groups and read consent state. Sign in again from a compliant device with `az login --tenant <tenant_id> --scope https://graph.microsoft.com//.default`, or create the groups elsewhere and set `RBAC_*_GROUP_ID`. Steps 1 to 3 only need an Azure Resource Manager token and are not affected. |
 | `az ... --query` fails with `was unexpected at this time` | Quoting problem in Windows PowerShell when a query contains parentheses. Use the commands in this guide, or filter in PowerShell. |
 
 ## Known limitations
 
-- **Verified by checks, not by users.** The deployed configuration was verified with the Azure CLI checks above and with ARM validation of every step. A VPN connection from one Windows machine was verified end to end (private name resolution and reachability of the private endpoints). Access as a group member through the portal, guest sign-in, other operating systems and other networks were not exercised by the author.
-- **One region deployed.** The templates were deployed to `uksouth` only. A clean deployment from an empty subscription was not exercised, because the steps were run incrementally.
-- **Guest accounts.** The deploying account in the reference environment is an external (B2B guest) account, and it connected to the VPN successfully without admin consent. Other guest accounts, and other tenants' consent settings, were not tested.
+- **Testing status.** The templates were deployed end to end, from an empty resource group through all six steps, in `uksouth` only. With VPN access, a connection from one Windows machine was verified (private name resolution and reachability of the private endpoints). With Bastion access, the deployment completes, but signing in to a VM through Bastion, the tool installation and the idle shutdown have not been verified on a deployed VM. macOS, other operating systems, other regions, other networks and other tenants' Conditional Access and consent settings were not exercised.
+- **External (B2B guest) accounts.** They can be group members and use the VPN or Bastion like other accounts. Sign-in as a guest was not verified. See [rbac.md](rbac.md).
 - **No workloads.** There is no function code, ML compute instance or cluster, model deployment or Foundry project. Notebook and VS Code features in Azure ML studio need a compute instance that you create. See [architecture.md](architecture.md#not-included).
 - **No service-to-service private connectivity.** See [architecture.md](architecture.md).
 - **Application Insights** accepts public ingestion.
 - **Custom Vision is retiring.** Microsoft supports it until 25 September 2028. Its accounts keep key authentication on, because Entra support for its API was not verified.
-- **New services need a new resource group in older environments.** Document Intelligence and Custom Vision are part of step 3, which the naming guard blocks on resource groups deployed before the naming convention. See [Naming](#naming).
+- **VM sign-in has no MFA.** Bastion VMs use a local username and password. See [accessing-the-environment.md](accessing-the-environment.md).
 - **Windows only.** The script and commands target Windows PowerShell 5.1.
