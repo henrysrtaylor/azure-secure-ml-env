@@ -29,7 +29,8 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
 resource search 'Microsoft.Search/searchServices@2024-06-01-preview' = {
   name: n.search
   location: location
-  sku: { name: 'standard' }
+  // Basic is the cheapest tier with private endpoint support (Free has none).
+  sku: { name: 'basic' }
   properties: {
     replicaCount: 1
     partitionCount: 1

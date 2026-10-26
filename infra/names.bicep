@@ -43,4 +43,10 @@ func resourceNames(prefix string, seed string) object => {
   resolverInbound: 'inbound'
   vpnGateway: 'vpng-${prefix}'
   vpnPip: 'pip-vpng-${prefix}'
+  bastion: 'bas-${prefix}'
+  bastionPip: 'pip-bas-${prefix}'
+  bastionNsg: 'nsg-bas-${prefix}'
+  bastionSubnet: 'AzureBastionSubnet'
+  vmSubnet: 'vm-subnet'
+  vmBase: 'vm-${prefix}'
 }

@@ -64,7 +64,7 @@ Give 3 one-day-event guests, whose email addresses are not in the tenant, browse
 - Bastion Standard can disable clipboard and file transfer. Basic cannot.
 - Anyone on a VM can reach everything their roles allow, so keep the guest roles narrow.
 
-**Cost** (UK South list prices, pre-VAT, bandwidth and discounts excluded)
+**Cost** (UK South list prices, pre-VAT, bandwidth and discounts excluded).
 
 | Item | Per hour | About per month |
 |---|---|---|

@@ -183,7 +183,7 @@ Storage account and registry names cannot contain hyphens, so the prefix is used
 These resources bill continuously while they exist, whether or not they are used:
 - VPN Gateway (`VpnGw1AZ`) and its public IP.
 - DNS Private Resolver inbound endpoint.
-- AI Search (`standard`).
+- AI Search (`basic`).
 - Container Registry (`Premium`).
 - Private endpoints (each has an hourly charge).
 - Log Analytics and Application Insights (usage based).
@@ -208,6 +208,7 @@ Flex Consumption bills only for execution. Azure ML, AI Services, Document Intel
 2. Soft-deleted resources keep their names reserved:
    - Key Vaults have purge protection, so a deleted vault cannot be purged for 90 days. Resource names are derived from the resource group ID, so redeploying to the same resource group name tries to reuse the same vault names and fails. Either recover the vault (`az keyvault recover --name <vault>`) or deploy with a different `NAME_PREFIX`.
    - Deleted AI Services accounts can be purged with `az cognitiveservices account purge`.
+   - Azure ML workspaces are soft deleted for 14 days and keep their name. The workspace is named `mlw-<prefix>`, so redeploying with the same prefix inside that window fails with "Soft-deleted workspace exists". Delete the workspace permanently when you tear down (in the portal, tick **Delete the workspace permanently**), or permanently delete it afterwards under Azure Machine Learning, **Recently deleted**. Otherwise use a new `NAME_PREFIX`.
 3. Delete the Entra groups if you no longer need them (`az ad group delete --group <name>`). They are not part of the resource group.
 4. The provider and feature registrations are subscription-wide and are left in place.
 
@@ -222,6 +223,7 @@ Flex Consumption bills only for execution. Azure ML, AI Services, Document Intel
 | `AuthorizationFailed` creating role assignments | The identity running the script needs Owner or User Access Administrator. |
 | Quota or capacity error for the gateway, Flex Consumption or AI Services | Request quota or choose another region in `AZURE_LOCATION`. |
 | Key Vault name conflict or vault shows as deleted | A soft-deleted vault holds the name. See Tear down. |
+| Step 3 fails with `Soft-deleted workspace exists` | A previous environment's Azure ML workspace is still soft deleted and holds the name `mlw-<prefix>`. Permanently delete it or use a new `NAME_PREFIX`. See Tear down. Steps 1 and 2 and the rest of step 3 are kept, so after fixing it run `./scripts/deploy.ps1 -Step 3,4,5,6`. |
 | `was deployed with the previous resource names` | The resource group predates the current naming convention. See [Naming](#naming). |
 | In Azure ML studio, Notebooks, the VS Code option is greyed out | It needs a running compute instance, and none is deployed. In studio go to Manage, Compute, Compute instances, New, wait for Running, then select it in Notebooks. Requires the VPN and the admins or developers group (AzureML Compute Operator). Quota and first-time managed network setup in your region were not tested. |
 | `-ValidateOnly` fails on step 2 or later on a fresh subscription | Expected. Those steps need earlier resources to exist. Deploy step by step. |
