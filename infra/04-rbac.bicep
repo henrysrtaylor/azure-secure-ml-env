@@ -7,6 +7,8 @@ param adminIds string = ''
 param developerIds string = ''
 @allowed(['User', 'Group', 'ServicePrincipal'])
 param principalType string = 'Group'
+// Same setting as step 2: lets the Foundry account (Document Intelligence) read the Data Lake.
+param foundryLakeAccess bool = false
 
 var n = resourceNames(prefix, resourceGroup().id)
 
@@ -45,18 +47,20 @@ var r = {
   mlDataScientist: 'f6c7c914-8db3-469d-8ca1-694a8f32e121'
   mlComputeOperator: 'e503ece1-11d0-4e8e-8e2c-7a6c3bf38815'
   websiteContributor: 'de139f84-1756-47ae-9be6-808fbbe84772'
+  blobReader: '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
+  openAiUser: '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+  networkConnectionApprover: 'b556d68e-0be0-4f35-a333-ad7ee1ce17ea'
 }
 
 resource lake 'Microsoft.Storage/storageAccounts@2023-05-01' existing = { name: n.lakeStorage }
 resource mlStorage 'Microsoft.Storage/storageAccounts@2023-05-01' existing = { name: n.mlStorage }
 resource kvWorkspace 'Microsoft.KeyVault/vaults@2023-07-01' existing = { name: n.keyVault }
 resource kvApp 'Microsoft.KeyVault/vaults@2023-07-01' existing = { name: n.appKeyVault }
-resource search 'Microsoft.Search/searchServices@2024-06-01-preview' existing = { name: n.search }
+resource search 'Microsoft.Search/searchServices@2025-05-01' existing = { name: n.search }
 resource ais 'Microsoft.CognitiveServices/accounts@2024-10-01' existing = { name: n.aiServices }
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = { name: n.acr }
 resource mlw 'Microsoft.MachineLearningServices/workspaces@2024-10-01' existing = { name: n.mlWorkspace }
 resource func 'Microsoft.Web/sites@2024-04-01' existing = { name: n.funcApp }
-resource docIntel 'Microsoft.CognitiveServices/accounts@2024-10-01' existing = { name: n.docIntelligence }
 resource cvTraining 'Microsoft.CognitiveServices/accounts@2024-10-01' existing = { name: n.customVisionTraining }
 resource cvPrediction 'Microsoft.CognitiveServices/accounts@2024-10-01' existing = { name: n.customVisionPrediction }
 
@@ -108,11 +112,6 @@ var mlwAssignments = expand(principals, {
 var funcAssignments = expand(principals, {
   admin: [r.websiteContributor]
   developer: [r.websiteContributor]
-})
-
-var docIntelAssignments = expand(principals, {
-  admin: [r.cogServicesContributor, r.cognitiveServicesUser]
-  developer: [r.cogServicesContributor, r.cognitiveServicesUser]
 })
 
 var customVisionAssignments = expand(principals, {
@@ -239,18 +238,6 @@ resource funcRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
   }
 ]
 
-resource docIntelRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
-  for a in docIntelAssignments: {
-    scope: docIntel
-    name: guid(docIntel.id, a.id, a.role)
-    properties: {
-      principalId: a.id
-      principalType: principalType
-      roleDefinitionId: roleId(a.role)
-    }
-  }
-]
-
 resource cvTrainingRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
   for a in customVisionAssignments: {
     scope: cvTraining
@@ -274,5 +261,89 @@ resource cvPredictionRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' 
     }
   }
 ]
+
+// ---- Service identities: what lets the services use each other (the network paths are in step 3) ----
+// Search reads the Data Lake and calls Foundry for embeddings and skills.
+resource searchReadsLake 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: lake
+  name: guid(lake.id, search.id, r.blobReader)
+  properties: {
+    principalId: search.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: roleId(r.blobReader)
+  }
+}
+
+resource searchUsesFoundryOpenAi 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: ais
+  name: guid(ais.id, search.id, r.openAiUser)
+  properties: {
+    principalId: search.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: roleId(r.openAiUser)
+  }
+}
+
+resource searchUsesFoundryServices 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: ais
+  name: guid(ais.id, search.id, r.cognitiveServicesUser)
+  properties: {
+    principalId: search.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: roleId(r.cognitiveServicesUser)
+  }
+}
+
+// The Foundry account reads training data and batch input from the Data Lake and writes batch results to it.
+resource foundryUsesLake 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (foundryLakeAccess) {
+  scope: lake
+  name: guid(lake.id, ais.id, r.blobContributor)
+  properties: {
+    principalId: ais.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: roleId(r.blobContributor)
+  }
+}
+
+// The ML workspace uses the Data Lake, and approves the managed private endpoints that step 3 defines for it.
+resource mlUsesLake 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: lake
+  name: guid(lake.id, mlw.id, r.blobContributor)
+  properties: {
+    principalId: mlw.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: roleId(r.blobContributor)
+  }
+}
+
+resource mlApprovesLake 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: lake
+  name: guid(lake.id, mlw.id, r.networkConnectionApprover)
+  properties: {
+    principalId: mlw.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: roleId(r.networkConnectionApprover)
+  }
+}
+
+resource mlApprovesFoundry 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: ais
+  name: guid(ais.id, mlw.id, r.networkConnectionApprover)
+  properties: {
+    principalId: mlw.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: roleId(r.networkConnectionApprover)
+  }
+}
+
+resource mlApprovesSearch 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: search
+  name: guid(search.id, mlw.id, r.networkConnectionApprover)
+  properties: {
+    principalId: mlw.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: roleId(r.networkConnectionApprover)
+  }
+}
 
 output assigned object = principals

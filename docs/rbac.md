@@ -26,7 +26,6 @@ Roles are assigned only to these groups, never to individual users.
 | Key Vault (application) | Key Vault Administrator | Key Vault Secrets Officer (read and write) |
 | AI Search | Search Service Contributor, Search Index Data Contributor | same as admins |
 | AI Foundry | Cognitive Services Contributor, Cognitive Services OpenAI Contributor, Foundry User | same as admins (can create and manage model deployments) |
-| Document Intelligence | Cognitive Services Contributor, Cognitive Services User | same as admins |
 | Custom Vision (training and prediction accounts) | Cognitive Services Contributor, Cognitive Services Custom Vision Contributor | same as admins |
 | Container Registry | AcrPush | AcrPush |
 | Azure ML workspace | AzureML Data Scientist, AzureML Compute Operator | same as admins |
@@ -123,7 +122,7 @@ Assignments of type `ServicePrincipal` belong to the services' own managed ident
 - **Removed roles:** removing a role from `infra/04-rbac.bicep` does not delete the existing assignment.
 - **Guests:** external (B2B guest) users can be group members. Their sign-in name differs from their email, so look them up by email as shown above.
 - **Token refresh:** new memberships and roles apply after a fresh sign-in and can take several minutes.
-- **Service identities:** the Function App identity has Storage Blob Data Owner on the ML storage account and Key Vault Secrets User on the application vault. Each Bastion VM's identity has Virtual Machine Contributor on that VM only, so it can deallocate itself. The ML workspace identity receives its roles from Azure when the workspace is created. These are not managed by step 4.
+- **Service identities:** the Function App identity has Storage Blob Data Owner on the ML storage account and Key Vault Secrets User on the application vault. Each Bastion VM's identity has Virtual Machine Contributor on that VM only, so it can deallocate itself. Step 4 also grants the Search identity Storage Blob Data Reader on the Data Lake and Cognitive Services OpenAI User and Cognitive Services User on the Foundry account, the Foundry identity Storage Blob Data Contributor on the Data Lake (only with `FOUNDRY_LAKE_ACCESS="true"`), and the ML workspace identity Storage Blob Data Contributor on the Data Lake plus Azure AI Enterprise Network Connection Approver on the Data Lake, Foundry and Search. The ML workspace identity receives its other roles from Azure when the workspace is created.
 - **Bastion:** admins and developers can open the VMs through Bastion because both groups have Reader on the resource group. Signing in to a VM uses its local username and password, not these roles. Admins can reset a VM password (Contributor on the resource group).
 
 ## Troubleshooting

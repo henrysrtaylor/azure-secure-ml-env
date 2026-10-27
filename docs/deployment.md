@@ -10,7 +10,7 @@ How to deploy, verify, update and remove the environment, plus everything that c
 | Azure CLI | Required. Install from [Microsoft](https://learn.microsoft.com/cli/azure/install-azure-cli). |
 | Bicep | Install with `az bicep install`. |
 | Git | To clone the repository. |
-| Azure subscription | Quota in your chosen region for Flex Consumption (`FC1`), Azure AI Services (`S0`), AI Search (`basic`) and Container Registry (`Premium`). For VPN access, the VPN Gateway SKU `VpnGw1AZ`, in a region that supports availability zones. For Bastion access, the VM size (`Standard_B2ms` by default) for `VM_COUNT` VMs. |
+| Azure subscription | Quota in your chosen region for Flex Consumption (`FC1`), Azure AI Services (`S0`), AI Search (`basic`, or `standard` with `SEARCH_SKU`) and Container Registry (`Premium`). For VPN access, the VPN Gateway SKU `VpnGw1AZ`, in a region that supports availability zones. For Bastion access, the VM size (`Standard_B2ms` by default) for `VM_COUNT` VMs. |
 | Azure permissions | Owner on the subscription, or Contributor plus User Access Administrator. Contributor alone cannot create role assignments, so step 3 and step 4 fail without the second role. |
 | Entra permissions | Permission to create groups, or existing groups whose object IDs you put in `.env`. The deploying account must be able to get a Microsoft Graph token. If your tenant's Conditional Access requires a compliant device, sign in from one (see Troubleshooting). |
 | Tenant admin | Only if VPN sign-in asks for it: a Global Administrator, Privileged Role Administrator or Cloud Application Administrator approves the Azure VPN Client app. Not every tenant needs it. See [vpn-client-setup.md](vpn-client-setup.md#grant-admin-consent). |
@@ -40,6 +40,8 @@ Edit `.env`. `.env` is git-ignored and holds your values.
 | `ACCESS_MODE` | How people connect (step 5) | `vpn` (default when blank), `bastion` or `both`. See [accessing-the-environment.md](accessing-the-environment.md) for when to use each. |
 | `RBAC_ADMIN_GROUP_ID` | Existing admins group | Leave blank to create `sg-<prefix>-admins`. |
 | `RBAC_DEVELOPER_GROUP_ID` | Existing developers group | Leave blank to create `sg-<prefix>-developers`. |
+| `SEARCH_SKU` | AI Search tier | `basic` (default) or `standard` (S1). Standard is needed for private custom skills (Function App) and Foundry skills. The tier cannot be changed on a deployed service, so delete the search service before switching. See [architecture.md](architecture.md#service-to-service-connections). |
+| `FOUNDRY_LAKE_ACCESS` | Let the Foundry account's document features (Document Intelligence) read the Data Lake | `false` (default) or `true`. `true` switches the Data Lake's public endpoint to "enabled from selected networks", default action `Deny`, with one rule for the Foundry account, and gives the Foundry identity Storage Blob Data Contributor on it. Run steps 2 and 4 after changing it. Read the trade-off in [architecture.md](architecture.md#service-to-service-connections) first. |
 | `VPN_GATEWAY_SKU` | Gateway SKU | Used with `vpn` and `both`. Default `VpnGw1AZ`. |
 | `VPN_CLIENT_ADDRESS_POOL` | Address range handed to VPN clients | Default `172.16.201.0/24`. Must not overlap the VNet. |
 | `VPN_AAD_AUDIENCE` | Azure VPN Client app ID | Default is the public-cloud ID `c632b3df-fb67-4d84-bdcf-b95ad541b5c8`. Sovereign clouds use a different ID. |
@@ -87,7 +89,7 @@ The steps fall into three stages. The infrastructure comes first (steps 1 to 3),
 |---|---|---|---|
 | 1 | `infra/01-network.bicep` | VNet, subnets, 12 private DNS zones and VNet links | |
 | 2 | `infra/02-storage-keyvault.bicep` | Data Lake, two Key Vaults, private endpoints | |
-| 3 | `infra/03-ai-ml.bicep` | ACR, AI Search, AI Foundry, Document Intelligence, Custom Vision (training and prediction), ML workspace, Function App, private endpoints | |
+| 3 | `infra/03-ai-ml.bicep` | ACR, AI Search, AI Foundry (including Document Intelligence), Custom Vision (training and prediction), ML workspace, Function App, private endpoints, Search shared private links to the Data Lake and Foundry, ML outbound rules to the Data Lake, Foundry and Search | The script then approves the pending shared private links on the Data Lake, Foundry and Function App and waits for them (a few minutes). See [architecture.md](architecture.md#service-to-service-connections). |
 | 4 | `infra/04-rbac.bicep` | Creates the Entra groups if needed, adds you to both, assigns roles | Needs Owner or User Access Administrator. |
 | 5 | `infra/05-access-vpn.bicep` and `infra/05-access-bastion.bicep`, by `ACCESS_MODE` | See [Step 5 by access mode](#step-5-by-access-mode) | The VPN Gateway typically takes 30 to 45 minutes. |
 | 6 | (script only) | Prints portal links, private endpoint IPs, and the connection details for the chosen access mode | Read-only. Skips registration and takes about 20 seconds. |
@@ -192,7 +194,6 @@ Every resource is named `<type>-<purpose>-<prefix>`, so the name alone says what
 | Container Registry | `acr<prefix><hash>` | `acrdemo...` |
 | AI Search | `srch-<prefix>-<hash>` | `srch-demo-...` |
 | AI Foundry (AI Services) | `foundry-<prefix>-<hash>` | `foundry-demo-...` |
-| Document Intelligence | `docintel-<prefix>-<hash>` | `docintel-demo-...` |
 | Custom Vision training / prediction | `customvision-train-<prefix>-<hash>`, `customvision-pred-<prefix>-<hash>` | `customvision-train-demo-...` |
 | Azure ML workspace | `mlw-<prefix>` | `mlw-demo` |
 | Function App plan | `plan-func-<prefix>` | `plan-func-demo` |
@@ -218,12 +219,13 @@ These resources bill continuously while they exist, whether or not they are used
 - AI Search (`basic`).
 - Container Registry (`Premium`).
 - Private endpoints (each has an hourly charge).
+- Search shared private links and, once the Azure ML managed network is provisioned, its outbound private endpoints (billed as private endpoints, plus data processed).
 - Log Analytics and Application Insights (usage based).
 - The VM disks (Bastion access), even while the VMs are deallocated.
 
 VMs bill for compute only while running. The daily shutdown and the idle shutdown deallocate them, which stops compute billing. Shutting Windows down from inside the VM leaves it `Stopped` and still billed, so use the portal's Stop button or let the idle shutdown do it. Starting a VM is a manual step in the portal.
 
-Flex Consumption bills only for execution. Azure ML, AI Services, Document Intelligence and Custom Vision bill on usage, and there is no compute or model deployment yet. Use the Azure Pricing Calculator for numbers in your region.
+Flex Consumption bills only for execution. Azure ML, AI Services and Custom Vision bill on usage, and there is no compute or model deployment yet. Use the Azure Pricing Calculator for numbers in your region.
 
 ## Update
 
@@ -268,6 +270,10 @@ Flex Consumption bills only for execution. Azure ML, AI Services, Document Intel
 | Step 5 appears stuck | The VPN Gateway takes 30 to 45 minutes. |
 | Step 3 fails with `InvalidResponseFromPrivateLinkService` on the AI Foundry private endpoint, and rerunning does not help | The endpoint is stuck in a `Failed` state although the account itself is `Succeeded`. Delete the endpoint (`az network private-endpoint delete -g <rg> -n pe-foundry-<prefix>-<hash>`) and rerun `./scripts/deploy.ps1 -Step 3`. |
 | `AADSTS53000 ... Device is not in required device state: compliant` in step 4 or 6 | Conditional Access requires a compliant device for the Microsoft Graph token the script needs to create groups and read consent state. Sign in again from a compliant device with `az login --tenant <tenant_id> --scope https://graph.microsoft.com//.default`, or create the groups elsewhere and set `RBAC_*_GROUP_ID`. Steps 1 to 3 only need an Azure Resource Manager token and are not affected. |
+| Step 3 ends with `Search shared private links are not all approved yet` | The links were created but a pending connection was not approved in time. Rerun `./scripts/deploy.ps1 -Step 3` (it only approves and waits), or approve them under the Data Lake's and the Foundry account's Networking, Private endpoint connections. Check the state with `az rest --method get --url "https://management.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Search/searchServices/<search>/sharedPrivateLinkResources?api-version=2025-05-01" --query "value[].[name,properties.status]" -o tsv`. |
+| An indexer fails to connect to the Data Lake or Foundry | Check that the indexer's configuration sets `"executionEnvironment": "private"` and that the matching shared private link shows `Approved`. Skillsets that use built-in skills other than embeddings, or custom skills, need `SEARCH_SKU="standard"`. See [architecture.md](architecture.md#service-to-service-connections). |
+| Step 3 fails creating `spl-function` | The Function link needs Search S1 or higher and a preview API, and Flex Consumption is not a documented target. Remove it by deleting the `splFunction` resource in `infra/03-ai-ml.bicep` if you do not need private custom skills. |
+| Step 2 fails with `FOUNDRY_LAKE_ACCESS="true"` because the Foundry account does not exist yet | The firewall rule names the account before step 3 creates it. If Azure rejects it, run steps 2 and 3 with the setting `false`, then set it to `true` and rerun steps 2 and 4. |
 | `az ... --query` fails with `was unexpected at this time` | Quoting problem in Windows PowerShell when a query contains parentheses. Use the commands in this guide, or filter in PowerShell. |
 
 ## Known limitations
@@ -275,7 +281,7 @@ Flex Consumption bills only for execution. Azure ML, AI Services, Document Intel
 - **Testing status.** The templates were deployed end to end, from an empty resource group through all six steps, in `uksouth` only. With VPN access, a connection from one Windows machine was verified (private name resolution and reachability of the private endpoints). With Bastion access, the deployment completes, but signing in to a VM through Bastion, the tool installation and the idle shutdown have not been verified on a deployed VM. macOS, other operating systems, other regions, other networks and other tenants' Conditional Access and consent settings were not exercised.
 - **External (B2B guest) accounts.** They can be group members and use the VPN or Bastion like other accounts. Sign-in as a guest was not verified. See [rbac.md](rbac.md).
 - **No workloads.** There is no function code, ML compute instance or cluster, model deployment or Foundry project. Notebook and VS Code features in Azure ML studio need a compute instance that you create. See [architecture.md](architecture.md#not-included).
-- **No service-to-service private connectivity.** See [architecture.md](architecture.md).
+- **Service-to-service connections are limited.** Search to the Data Lake, Foundry and (on Standard) the Function App, Azure ML to the Data Lake, Foundry and Search, and (optionally) the Foundry account's document features to the Data Lake are configured. Others are not. The Function link and the Foundry Data Lake rule have been validated by Azure but not exercised at runtime. See [architecture.md](architecture.md#service-to-service-connections).
 - **Application Insights** accepts public ingestion.
 - **Custom Vision is retiring.** Microsoft supports it until 25 September 2028. Its accounts keep key authentication on, because Entra support for its API was not verified.
 - **VM sign-in has no MFA.** Bastion VMs use a local username and password. See [accessing-the-environment.md](accessing-the-environment.md).

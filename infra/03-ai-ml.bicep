@@ -3,6 +3,9 @@ import { privateDnsZones, resourceNames } from 'names.bicep'
 
 param prefix string
 param location string = resourceGroup().location
+// basic: indexers and embedding connections only. standard (S1): also private custom skills (Function App) and Foundry skills.
+@allowed(['basic', 'standard'])
+param searchSku string = 'basic'
 
 var n = resourceNames(prefix, resourceGroup().id)
 var vnetSubnet = '${resourceId('Microsoft.Network/virtualNetworks', n.vnet)}/subnets'
@@ -26,11 +29,13 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
 }
 
 // ---- AI Search ----
-resource search 'Microsoft.Search/searchServices@2024-06-01-preview' = {
+resource search 'Microsoft.Search/searchServices@2025-05-01' = {
   name: n.search
   location: location
   // Basic is the cheapest tier with private endpoint support (Free has none).
-  sku: { name: 'basic' }
+  sku: { name: searchSku }
+  // The identity is what the indexers and the Foundry embedding calls authenticate with (roles are assigned in step 4).
+  identity: { type: 'SystemAssigned' }
   properties: {
     replicaCount: 1
     partitionCount: 1
@@ -38,6 +43,8 @@ resource search 'Microsoft.Search/searchServices@2024-06-01-preview' = {
     disableLocalAuth: true
   }
 }
+
+resource lake 'Microsoft.Storage/storageAccounts@2023-05-01' existing = { name: n.lakeStorage }
 
 // ---- AI Foundry (Azure OpenAI + Cognitive Services) ----
 resource ais 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
@@ -169,23 +176,71 @@ module peAis 'modules/private-endpoint.bicep' = {
   }
 }
 
-// ---- Document Intelligence and Custom Vision (all share the cognitiveservices DNS zone, so chain them) ----
-module docIntel 'modules/cognitive-account.bicep' = {
-  name: 'docintelligence'
-  dependsOn: [peAis]
-  params: {
-    name: n.docIntelligence
-    kind: 'FormRecognizer'
-    location: location
-    subnetId: subnetId
-    zoneIds: [zoneId(privateDnsZones.cognitive)]
+// ---- AI Search shared private links: private outbound connections from Search to the Data Lake and Foundry ----
+// Each link is created pending. deploy.ps1 approves it on the target (Search cannot approve itself). Chained, because the
+// Search service is updated by each one. Basic supports indexers and embedding connections; other built-in skills need S1.
+resource splLakeBlob 'Microsoft.Search/searchServices/sharedPrivateLinkResources@2025-05-01' = {
+  parent: search
+  name: 'spl-lake-blob'
+  dependsOn: [peSearch]
+  properties: {
+    privateLinkResourceId: lake.id
+    groupId: 'blob'
+    requestMessage: 'Shared private link from ${n.search}'
   }
 }
 
+resource splLakeDfs 'Microsoft.Search/searchServices/sharedPrivateLinkResources@2025-05-01' = {
+  parent: search
+  name: 'spl-lake-dfs'
+  dependsOn: [splLakeBlob]
+  properties: {
+    privateLinkResourceId: lake.id
+    groupId: 'dfs'
+    requestMessage: 'Shared private link from ${n.search}'
+  }
+}
+
+resource splFoundryOpenAi 'Microsoft.Search/searchServices/sharedPrivateLinkResources@2025-05-01' = {
+  parent: search
+  name: 'spl-foundry-openai'
+  dependsOn: [splLakeDfs, peAis]
+  properties: {
+    privateLinkResourceId: ais.id
+    groupId: 'openai_account'
+    requestMessage: 'Shared private link from ${n.search}'
+  }
+}
+
+resource splFoundryModels 'Microsoft.Search/searchServices/sharedPrivateLinkResources@2025-05-01' = if (searchSku != 'basic') {
+  parent: search
+  name: 'spl-foundry-models'
+  dependsOn: [splFoundryOpenAi]
+  properties: {
+    privateLinkResourceId: ais.id
+    groupId: 'foundry_account'
+    requestMessage: 'Shared private link from ${n.search}'
+  }
+}
+
+// Private custom skills: Search calls the Function App. Needs tier S1 or higher, and the sites group ID is a preview feature.
+// Flex Consumption is not in Microsoft's list of supported hosting plans, so this is unverified.
+resource splFunction 'Microsoft.Search/searchServices/sharedPrivateLinkResources@2025-02-01-preview' = if (searchSku != 'basic') {
+  parent: search
+  name: 'spl-function'
+  dependsOn: [splFoundryModels, peFunc]
+  properties: {
+    privateLinkResourceId: func.id
+    groupId: 'sites'
+    requestMessage: 'Shared private link from ${n.search}'
+  }
+}
+
+// ---- Custom Vision (shares the cognitiveservices DNS zone with Foundry, so chain it after the Foundry private endpoint) ----
 // Custom Vision keeps key auth on: Entra support for its API was not verified. Access is private-only.
 module customVisionTraining 'modules/cognitive-account.bicep' = {
   name: 'customvision-training'
-  dependsOn: [docIntel]
+  dependsOn: [peAis]
   params: {
     name: n.customVisionTraining
     kind: 'CustomVision.Training'
@@ -231,6 +286,68 @@ resource mlw 'Microsoft.MachineLearningServices/workspaces@2024-10-01' = {
     #disable-next-line BCP037
     systemDatastoresAuthMode: 'identity'
     managedNetwork: { isolationMode: 'AllowInternetOutbound' }
+  }
+}
+
+// ---- Azure ML managed network: outbound private endpoints from ML jobs and studio to the other services ----
+// The managed network is created when the first compute is created, and these rules become private endpoints then.
+// The workspace identity approves them (role assigned in step 4). Chained, because the workspace is updated by each one.
+resource mlOutLakeBlob 'Microsoft.MachineLearningServices/workspaces/outboundRules@2024-10-01' = {
+  parent: mlw
+  name: 'lake-blob'
+  properties: {
+    type: 'PrivateEndpoint'
+    category: 'UserDefined'
+    destination: {
+      serviceResourceId: lake.id
+      subresourceTarget: 'blob'
+      sparkEnabled: false
+    }
+  }
+}
+
+resource mlOutLakeDfs 'Microsoft.MachineLearningServices/workspaces/outboundRules@2024-10-01' = {
+  parent: mlw
+  name: 'lake-dfs'
+  dependsOn: [mlOutLakeBlob]
+  properties: {
+    type: 'PrivateEndpoint'
+    category: 'UserDefined'
+    destination: {
+      serviceResourceId: lake.id
+      subresourceTarget: 'dfs'
+      sparkEnabled: false
+    }
+  }
+}
+
+resource mlOutFoundry 'Microsoft.MachineLearningServices/workspaces/outboundRules@2024-10-01' = {
+  parent: mlw
+  name: 'foundry'
+  dependsOn: [mlOutLakeDfs]
+  properties: {
+    type: 'PrivateEndpoint'
+    category: 'UserDefined'
+    destination: {
+      serviceResourceId: ais.id
+      subresourceTarget: 'account'
+      sparkEnabled: false
+    }
+  }
+}
+
+resource mlOutSearch 'Microsoft.MachineLearningServices/workspaces/outboundRules@2024-10-01' = {
+  parent: mlw
+  name: 'search'
+  dependsOn: [mlOutFoundry]
+  properties: {
+    type: 'PrivateEndpoint'
+    category: 'UserDefined'
+    destination: {
+      serviceResourceId: search.id
+      subresourceTarget: 'searchService'
+      sparkEnabled: false
+    }
   }
 }
 
@@ -354,7 +471,6 @@ output privateEndpoints array = [
   { name: peAcr.outputs.name, dns: peAcr.outputs.dnsConfigs }
   { name: peSearch.outputs.name, dns: peSearch.outputs.dnsConfigs }
   { name: peAis.outputs.name, dns: peAis.outputs.dnsConfigs }
-  { name: docIntel.outputs.peName, dns: docIntel.outputs.dnsConfigs }
   { name: customVisionTraining.outputs.peName, dns: customVisionTraining.outputs.dnsConfigs }
   { name: customVisionPrediction.outputs.peName, dns: customVisionPrediction.outputs.dnsConfigs }
   { name: peMlw.outputs.name, dns: peMlw.outputs.dnsConfigs }

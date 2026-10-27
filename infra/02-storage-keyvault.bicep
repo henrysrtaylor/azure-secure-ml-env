@@ -3,8 +3,13 @@ import { privateDnsZones, resourceNames } from 'names.bicep'
 
 param prefix string
 param location string = resourceGroup().location
+// The Foundry account cannot create an outbound private link to storage. Its document features (Document Intelligence) reach
+// storage only through a firewall exception for that one resource, which needs the Data Lake's public endpoint enabled (still
+// denied to everyone else). Off by default.
+param foundryLakeAccess bool = false
 
 var n = resourceNames(prefix, resourceGroup().id)
+var foundryId = resourceId('Microsoft.CognitiveServices/accounts', n.aiServices)
 var subnetId = resourceId('Microsoft.Network/virtualNetworks/subnets', n.vnet, n.servicesSubnet)
 
 func zoneId(zone string) string => resourceId('Microsoft.Network/privateDnsZones', zone)
@@ -16,7 +21,7 @@ resource lake 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   sku: { name: 'Standard_ZRS' }
   properties: {
     isHnsEnabled: true
-    publicNetworkAccess: 'Disabled'
+    publicNetworkAccess: foundryLakeAccess ? 'Enabled' : 'Disabled'
     allowBlobPublicAccess: false
     allowSharedKeyAccess: false
     minimumTlsVersion: 'TLS1_2'
@@ -24,6 +29,12 @@ resource lake 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     networkAcls: {
       defaultAction: 'Deny'
       bypass: 'AzureServices'
+      resourceAccessRules: foundryLakeAccess ? [
+        {
+          tenantId: tenant().tenantId
+          resourceId: foundryId
+        }
+      ] : []
     }
   }
 }

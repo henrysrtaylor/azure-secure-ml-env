@@ -31,6 +31,12 @@ if ($accessMode -notin 'vpn', 'bastion', 'both') {
 $vpnOn = $accessMode -in 'vpn', 'both'
 $bastionOn = $accessMode -in 'bastion', 'both'
 function Get-Setting($name, $default) { if ($cfg[$name]) { $cfg[$name] } else { $default } }
+# SEARCH_SKU: basic, or standard (S1) for private custom skills and Foundry skills. FOUNDRY_LAKE_ACCESS: see docs/architecture.md.
+$searchSku = (Get-Setting 'SEARCH_SKU' 'basic').ToLower()
+if ($searchSku -notin 'basic', 'standard') { throw "SEARCH_SKU must be basic or standard (got '$searchSku')." }
+$foundryLake = (Get-Setting 'FOUNDRY_LAKE_ACCESS' 'false').ToLower()
+if ($foundryLake -notin 'true', 'false') { throw "FOUNDRY_LAKE_ACCESS must be true or false (got '$foundryLake')." }
+$foundryLakeArg = @("foundryLakeAccess=$foundryLake")
 if ($bastionOn) {
     $bastionSku = Get-Setting 'BASTION_SKU' 'Basic'
     if ($bastionSku -notin 'Basic', 'Standard') { throw "BASTION_SKU must be Basic or Standard (got '$bastionSku')." }
@@ -100,6 +106,35 @@ function Get-ExistingVmNumber {
     $nums = @($names | Where-Object { $_ -match "^vm-$prefix-(\d\d)$" } | ForEach-Object { [int]$Matches[1] })
     if ($nums.Count -eq 0) { 0 } else { ($nums | Measure-Object -Maximum).Maximum }
 }
+
+# Search creates its shared private links to the Data Lake and Foundry as pending requests and cannot approve them itself.
+function Approve-SharedPrivateLinks {
+    $resources = (Invoke-Az resource list -g $rg --query "[].{id:id,type:type}" -o json | Out-String) | ConvertFrom-Json
+    $search = @($resources | Where-Object { $_.type -eq 'Microsoft.Search/searchServices' })[0]
+    if (-not $search) { return }
+    $targets = @($resources | Where-Object {
+            ($_.type -eq 'Microsoft.Storage/storageAccounts' -and $_.id -match '/stlake') -or
+            ($_.type -eq 'Microsoft.CognitiveServices/accounts' -and $_.id -match '/foundry-') -or
+            ($_.type -eq 'Microsoft.Web/sites' -and $_.id -match '/func-')
+        })
+    $statusUri = "https://management.azure.com$($search.id)/sharedPrivateLinkResources?api-version=2025-05-01"
+    for ($i = 0; $i -lt 20; $i++) {
+        foreach ($t in $targets) {
+            $conns = (Invoke-Az network private-endpoint-connection list --id $t.id -o json | Out-String) | ConvertFrom-Json
+            foreach ($c in @($conns | Where-Object { $_.properties.privateLinkServiceConnectionState.status -eq 'Pending' })) {
+                Write-Host "Approving $($c.name)"
+                Invoke-Az network private-endpoint-connection approve --id $c.id --description 'Approved by deploy.ps1' -o none
+            }
+        }
+        $states = @(Invoke-Az rest --method get --url $statusUri --query "value[].properties.status" -o tsv | Where-Object { $_ })
+        if ($states.Count -gt 0 -and @($states | Where-Object { $_ -ne 'Approved' }).Count -eq 0) {
+            Write-Host 'Search shared private links are approved.'
+            return
+        }
+        Start-Sleep 30
+    }
+    Write-Warning 'Search shared private links are not all approved yet. Rerun step 3 later, or approve them under each target''s Networking, Private endpoint connections.'
+}
 # Step 6 only reads the environment, so it needs no registration or resource group.
 $changesAzure = @($Step | Where-Object { $_ -le 5 }).Count -gt 0
 if ($changesAzure -and -not $ValidateOnly) {
@@ -156,14 +191,17 @@ $net = @(
 if ($bastionOn) { $net += @("bastionSubnetPrefix=$bastionSubnetPrefix", "vmSubnetPrefix=$vmSubnetPrefix") }
 
 if ($Step -contains 1) { Deploy-Step '01-network.bicep' ($base + $net) }
-if ($Step -contains 2) { Deploy-Step '02-storage-keyvault.bicep' $base }
-if ($Step -contains 3) { Deploy-Step '03-ai-ml.bicep' $base }
+if ($Step -contains 2) { Deploy-Step '02-storage-keyvault.bicep' ($base + $foundryLakeArg) }
+if ($Step -contains 3) {
+    Deploy-Step '03-ai-ml.bicep' ($base + @("searchSku=$searchSku"))
+    if (-not $ValidateOnly) { Approve-SharedPrivateLinks }
+}
 if ($Step -contains 4) {
     # Groups are created on first run (or taken from RBAC_*_GROUP_ID); membership is managed in Entra afterwards.
     $adminId = Get-OrCreateGroup "sg-$prefix-admins" $cfg.RBAC_ADMIN_GROUP_ID "Admins of the $prefix AI environment" -AddMe
     $devId = Get-OrCreateGroup "sg-$prefix-developers" $cfg.RBAC_DEVELOPER_GROUP_ID "Developers of the $prefix AI environment" -AddMe
     Write-Host "Admins: $adminId`nDevelopers: $devId"
-    Deploy-Step '04-rbac.bicep' @("prefix=$prefix", "adminIds=$adminId", "developerIds=$devId", 'principalType=Group')
+    Deploy-Step '04-rbac.bicep' @("prefix=$prefix", "adminIds=$adminId", "developerIds=$devId", 'principalType=Group') + $foundryLakeArg
 }
 
 # Access layer, chosen by ACCESS_MODE: vpn (resolver and VPN gateway), bastion (Bastion and one VM per user), or both side by side.
