@@ -102,7 +102,7 @@ The steps fall into three stages. The infrastructure comes first (steps 1 to 3),
 
 The Bastion subnets are part of the step 1 template, because redeploying the VNet without them would remove them.
 
-For Bastion access the script generates a long random password for each new VM and passes it to the template as a secure parameter. It prints a table of VM names, usernames (`evtNN`) and passwords once, and saves the same data to `vm_passwords.jsonl` next to `.env` (git-ignored, one JSON object per line with `vm`, `user` and `password`). Azure cannot show a VM password later, so keep that file safe. Admins can also reset a password in the portal (VM, Help, Reset password). Azure does not allow changing an admin password through a redeployment, so a rerun only creates and records VMs that do not exist yet. VM names are `vm-<prefix>-NN`.
+For Bastion access the script generates a long random password for each new VM and passes it to the template as a secure parameter. It prints a table of VM names, usernames (`vmuserNN`) and passwords once, and saves the same data to `vm_passwords.jsonl` next to `.env` (git-ignored, one JSON object per line with `vm`, `user` and `password`). Azure cannot show a VM password later, so keep that file safe. Admins can also reset a password in the portal (VM, Help, Reset password). Azure does not allow changing an admin password through a redeployment, so a rerun only creates and records VMs that do not exist yet. VM names are `vm-<prefix>-NN`.
 
 Before step 1 the script also:
 - Registers the required resource providers if they are not registered.
@@ -262,7 +262,7 @@ Flex Consumption bills only for execution. Azure ML, AI Services, Document Intel
 | Quota or capacity error for the gateway, Flex Consumption or AI Services | Request quota or choose another region in `AZURE_LOCATION`. |
 | Key Vault name conflict or vault shows as deleted | A soft-deleted vault holds the name. See Tear down. |
 | Step 3 fails with `Soft-deleted workspace exists` | A previous environment's Azure ML workspace is still soft deleted and holds the name `mlw-<prefix>`. Permanently delete it or use a new `NAME_PREFIX`. See Tear down. Steps 1 and 2 and the rest of step 3 are kept, so after fixing it run `./scripts/deploy.ps1 -Step 3,4,5,6`. |
-| `was deployed with the previous resource names` | The resource group predates the current naming convention. See [Naming](#naming). |
+| `already has resources but no naming=v2 tag` | The resource group was not created by this script, or predates the current naming convention. If it holds nothing from an earlier deployment of this repository, tag it with the command in the error message and rerun. Otherwise see [Naming](#naming). |
 | In Azure ML studio, Notebooks, the VS Code option is greyed out | It needs a running compute instance, and none is deployed. In studio go to Manage, Compute, Compute instances, New, wait for Running, then select it in Notebooks. Requires the VPN and the admins or developers group (AzureML Compute Operator). Quota and first-time managed network setup in your region were not tested. |
 | `-ValidateOnly` fails on step 2 or later on a fresh subscription | Expected. Those steps need earlier resources to exist. Deploy step by step. |
 | Step 5 appears stuck | The VPN Gateway takes 30 to 45 minutes. |

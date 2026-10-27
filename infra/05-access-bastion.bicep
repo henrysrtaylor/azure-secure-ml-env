@@ -32,7 +32,7 @@ var bastionSubnetId = '${vnetId}/subnets/${n.bastionSubnet}'
 var vmSubnetId = '${vnetId}/subnets/${n.vmSubnet}'
 var newCount = max(vmCount - existingVmCount, 0)
 var vmNames = [for i in range(0, newCount): '${n.vmBase}-${padLeft(string(existingVmCount + i + 1), 2, '0')}']
-var vmUsers = [for i in range(0, newCount): 'evt${padLeft(string(existingVmCount + i + 1), 2, '0')}']
+var vmUsers = [for i in range(0, newCount): 'vmuser${padLeft(string(existingVmCount + i + 1), 2, '0')}']
 var vmContributorRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '9980e02c-c2be-4d73-94e8-173b1dc7cf3c')
 
 resource bastionPip 'Microsoft.Network/publicIPAddresses@2024-05-01' = {

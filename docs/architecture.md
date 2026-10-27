@@ -73,7 +73,7 @@ The VNet address space is `10.0.0.0/16`. With VPN access the resolver inbound en
 ## Access layer (step 5)
 
 - **VPN** (`vpn` or `both`): a VPN Gateway (Point-to-Site, OpenVPN, Entra ID sign-in) and a DNS Private Resolver, so a connected computer resolves private names to private addresses.
-- **Bastion** (`bastion` or `both`): an Azure Bastion host and one Windows Server 2022 VM per user (`VM_COUNT`). A user opens their VM in the Azure portal, connects through Bastion with the VM's local username and password, and works from there. Each VM has a system-assigned identity with Virtual Machine Contributor on itself only, so it can deallocate itself. Each VM also gets a daily shutdown schedule and an idle shutdown task, and a run command installs Git, Python, VS Code and the Azure CLI. Failures in that run command are logged to `C:\ProvisionTools.log` and never fail the deployment.
+- **Bastion** (`bastion` or `both`): an Azure Bastion host and one Windows Server 2022 VM per user (`VM_COUNT`). A user opens their VM in the Azure portal, connects through Bastion with the VM's local username and password, and works from there. Each VM has a system-assigned identity with Virtual Machine Contributor on itself only, so it can deallocate itself. Each VM also gets a daily shutdown schedule and an idle shutdown task, and a run command installs Git, Python, VS Code and the Azure CLI. Failures in that run command are logged to `C:\ProvisionTools.log` and never fail the deployment. The installers are downloaded over HTTPS and are not checksum-verified, and the script turns off Internet Explorer's enhanced security mode for administrators so the VMs can browse.
 
 ## Two Key Vaults
 

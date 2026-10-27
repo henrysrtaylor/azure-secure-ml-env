@@ -20,7 +20,7 @@ $sub = $cfg.AZURE_SUBSCRIPTION_ID
 $rg = $cfg.RESOURCE_GROUP_NAME
 $prefix = $cfg.NAME_PREFIX
 if (-not $prefix) {
-    throw "NAME_PREFIX is missing in $EnvFile. It was called ENVIRONMENT_NAME in earlier versions, so rename it."
+    throw "NAME_PREFIX is missing in $EnvFile. Copy .env.example to .env and set it."
 }
 $loc = $cfg.AZURE_LOCATION
 # ACCESS_MODE picks how people connect in step 5: vpn, bastion, or both (VPN and Bastion deployed side by side).
@@ -140,7 +140,7 @@ if ($changesAzure) {
         }
     }
     if (-not $namingCurrent -and @($Step | Where-Object { $_ -in 2, 3, 4 }).Count -gt 0) {
-        throw "Resource group $rg was deployed with the previous resource names. Steps 2, 3 and 4 would create duplicate resources under the new names. Use -Step 1,5,6 here, or deploy to a new resource group (see docs/deployment.md, Naming)."
+        throw "Resource group $rg already has resources but no naming=v2 tag, so it may have been deployed with the previous resource names, and steps 2, 3 and 4 would create duplicates. Use -Step 1,5,6, deploy to a new resource group, or, if you know it is safe, tag it: az tag update --resource-id /subscriptions/$sub/resourceGroups/$rg --operation merge --tags naming=v2 (see docs/deployment.md, Naming)."
     }
 }
 
@@ -206,7 +206,7 @@ if ($Step -contains 5) {
             for ($i = 0; $i -lt $newVms; $i++) {
                 $num = $existingVms + $i + 1
                 $vmName = 'vm-{0}-{1:d2}' -f $prefix, $num
-                Write-Host ('{0,-18} user: evt{1:d2}   password: {2}' -f $vmName, $num, $passwords[$i])
+                Write-Host ('{0,-18} user: vmuser{1:d2}   password: {2}' -f $vmName, $num, $passwords[$i])
             }
             Write-Host 'Admins can reset a password in the Azure portal: VM, Help, Reset password.'
             # Azure never returns a VM password later, so keep them next to .env (git-ignored). Later runs update only the VMs they create.
@@ -216,7 +216,7 @@ if ($Step -contains 5) {
                 $num = $existingVms + $i + 1
                 $vmName = 'vm-{0}-{1:d2}' -f $prefix, $num
                 $kept = @($kept | Where-Object { ($_ | ConvertFrom-Json).vm -ne $vmName })
-                [ordered]@{ vm = $vmName; user = ('evt{0:d2}' -f $num); password = $passwords[$i] } | ConvertTo-Json -Compress
+                [ordered]@{ vm = $vmName; user = ('vmuser{0:d2}' -f $num); password = $passwords[$i] } | ConvertTo-Json -Compress
             }
             Set-Content -Path $pwFile -Value (@($kept) + @($lines)) -Encoding ASCII
             Write-Host "Saved to $pwFile"
@@ -258,10 +258,10 @@ if ($Step -contains 6 -and -not $ValidateOnly) {
     if ($bastionOn) {
         Write-Host "Bastion host:   bas-$prefix ($(Get-Setting 'BASTION_SKU' 'Basic') SKU)"
         Write-Host "Who can connect: the admins and developers groups (they have Reader on the resource group, which the portal needs to open a VM through Bastion)"
-        $vmList = @(Invoke-Az vm list -g $rg --query "[].name" -o tsv | Where-Object { $_ -match "^vm-$prefix-\d\d$" })
-        foreach ($vmName in ($vmList | Sort-Object)) {
-            $num = [int]($vmName -replace "^vm-$prefix-", '')
-            Write-Host ('{0,-18} user: evt{1:d2}   https://portal.azure.com/#@{2}/resource/subscriptions/{3}/resourceGroups/{4}/providers/Microsoft.Compute/virtualMachines/{0}/overview' -f $vmName, $num, $cfg.AZURE_TENANT_ID, $sub, $rg)
+        $vmList = @(Invoke-Az vm list -g $rg --query "[].[name,osProfile.adminUsername]" -o tsv | Where-Object { $_ -match "^vm-$prefix-\d\d\t" })
+        foreach ($line in ($vmList | Sort-Object)) {
+            $vmName, $vmUser = $line -split "`t"
+            Write-Host ('{0,-18} user: {1,-10} https://portal.azure.com/#@{2}/resource/subscriptions/{3}/resourceGroups/{4}/providers/Microsoft.Compute/virtualMachines/{0}/overview' -f $vmName, $vmUser, $cfg.AZURE_TENANT_ID, $sub, $rg)
         }
         Write-Host 'Users open their VM in the portal, choose Connect, then Bastion, and enter that VM''s username and password.'
     }

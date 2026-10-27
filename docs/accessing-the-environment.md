@@ -48,7 +48,7 @@ Azure Bastion gives a remote desktop session in the browser, into a VM that sits
 - Access should be easy to hand out and to remove: create the VMs, give each user their credentials, delete the VMs when finished.
 
 **How it works**
-1. An admin sets how many VMs to create (`VM_COUNT`). Each VM (`vm-<prefix>-NN`) gets its own username (`evtNN`) and a generated password. Step 5 prints them once and saves them to `vm_passwords.jsonl` next to `.env` (git-ignored), because Azure cannot show them again. Admins can reset a password in the portal (VM, Help, Reset password).
+1. An admin sets how many VMs to create (`VM_COUNT`). Each VM (`vm-<prefix>-NN`) gets its own username (`vmuserNN`) and a generated password. Step 5 prints them once and saves them to `vm_passwords.jsonl` next to `.env` (git-ignored), because Azure cannot show them again. Admins can reset a password in the portal (VM, Help, Reset password).
 2. The user signs in to the Azure portal, opens their VM, and chooses Connect, then Bastion.
 3. They enter that VM's username and password. Bastion does not map users to VMs, so the credentials are what grant access to that machine.
 4. Their tools run on the VM. To use an Azure service from the VM they sign in with their own Entra account, so the roles they have still decide what they can do.
