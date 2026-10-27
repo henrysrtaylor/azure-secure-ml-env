@@ -2,10 +2,12 @@
 
 A Bicep-based Azure environment for AI engineering teams, built so that nothing is exposed to the internet. Every PaaS service has public network access disabled and is reachable only through a private endpoint, and key-based authentication is turned off wherever the service allows it, so access is controlled by Microsoft Entra ID and Azure RBAC.
 
+Use it as a personal sandbox in your own Azure subscription for testing and developing, or as a shared environment for a team. The same templates serve both: deploy it for yourself, or add people to the admins and developers groups and give them a way in.
+
 You choose how people get in:
 
-- **VPN**, for trusted teams: a Point-to-Site VPN with Microsoft Entra ID sign-in, so people use their own tools from their own computers.
-- **Bastion**, for third parties: browser-based remote desktop into a VM inside the network, one VM per user, so nothing is installed on their devices and work stays in the environment.
+- **VPN**: a Point-to-Site VPN with Microsoft Entra ID sign-in, so people use their own tools from their own computers. Best for trusted teams and personal sandbox environments.
+- **Bastion**: browser-based remote desktop into a VM inside the network, one VM per user, so nothing is installed on their devices and work stays in the environment. Best for third parties, and for people who can't install the VPN client or whose devices you don't manage.
 - **Both**, side by side.
 
 See [docs/accessing-the-environment.md](docs/accessing-the-environment.md) for how to choose.
@@ -25,6 +27,17 @@ See [docs/accessing-the-environment.md](docs/accessing-the-environment.md) for h
 | 5 | Bastion access (`bastion` or `both`) | Bastion host with its public IP, and per user a Windows Server 2022 VM with a network interface, a daily shutdown schedule, a setup run command and a self-deallocate role assignment |
 
 Not deployed: ML compute, model deployments, Foundry projects and function code. See [docs/architecture.md](docs/architecture.md#not-included).
+
+## 👥 Groups and Access
+
+Access is controlled by two Microsoft Entra security groups. Roles are assigned only to the groups, never to individuals, so you give or remove access by changing group membership, with no redeploy. Because key authentication is disabled on the data services, a network path in (VPN or Bastion) is not enough on its own: a person also needs to be in one of these groups.
+
+| Group | For | Can do |
+|---|---|---|
+| `sg-<prefix>-admins` | People who run the environment | Change resources (Contributor on the resource group), full control of the Data Lake and both Key Vaults, manage AI Search, AI Foundry, Document Intelligence, Custom Vision, Container Registry, the ML workspace and the Function App. Generate the VPN profile and reset VM passwords. |
+| `sg-<prefix>-developers` | Day-to-day data, ML and AI work | Read the resource group, read and write the Data Lake, read and write application secrets, and use the same AI, ML, Search and Function App roles as admins, including model deployments. Cannot change infrastructure and cannot read the ML workspace Key Vault. |
+
+Step 4 creates both groups if they don't exist, makes the deploying user their owner and a member of both, and assigns the roles. To use groups you already manage, set `RBAC_ADMIN_GROUP_ID` and `RBAC_DEVELOPER_GROUP_ID` in `.env`. The full role table, how to add and remove people and how to change what a tier can do are in [docs/rbac.md](docs/rbac.md).
 
 ## 📋 Core Components
 
