@@ -2,6 +2,7 @@
 import { resourceNames } from 'names.bicep'
 
 param prefix string
+param location string = resourceGroup().location
 // Comma-separated Entra object IDs per tier.
 param adminIds string = ''
 param developerIds string = ''
@@ -11,6 +12,12 @@ param principalType string = 'Group'
 param foundryLakeAccess bool = false
 
 var n = resourceNames(prefix, resourceGroup().id)
+
+// Shared identity for compute and other workloads. deploy.ps1 adds it to the developers group, so it has developer access.
+resource workloadIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: n.workloadIdentity
+  location: location
+}
 
 func ids(csv string) array => filter(map(split(csv, ','), p => trim(p)), p => !empty(p))
 

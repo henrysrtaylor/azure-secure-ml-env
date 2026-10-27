@@ -90,7 +90,7 @@ The steps fall into three stages. The infrastructure comes first (steps 1 to 3),
 | 1 | `infra/01-network.bicep` | VNet, subnets, 12 private DNS zones and VNet links | |
 | 2 | `infra/02-storage-keyvault.bicep` | Data Lake, two Key Vaults, private endpoints | |
 | 3 | `infra/03-ai-ml.bicep` | ACR, AI Search, AI Foundry (including Document Intelligence), Custom Vision (training and prediction), ML workspace, Function App, private endpoints, Search shared private links to the Data Lake and Foundry, ML outbound rules to the Data Lake, Foundry and Search | The script then approves the pending shared private links on the Data Lake, Foundry and Function App and waits for them (a few minutes). See [architecture.md](architecture.md#service-to-service-connections). |
-| 4 | `infra/04-rbac.bicep` | Creates the Entra groups if needed, adds you to both, assigns roles | Needs Owner or User Access Administrator. |
+| 4 | `infra/04-rbac.bicep` | Creates the Entra groups if needed, adds you to both, assigns roles, creates the shared identity `id-workloads-<prefix>` and adds it to the developers group (see [rbac.md](rbac.md#workload-identity)) | Needs Owner or User Access Administrator. |
 | 5 | `infra/05-access-vpn.bicep` and `infra/05-access-bastion.bicep`, by `ACCESS_MODE` | See [Step 5 by access mode](#step-5-by-access-mode) | The VPN Gateway typically takes 30 to 45 minutes. |
 | 6 | (script only) | Prints portal links, private endpoint IPs, and the connection details for the chosen access mode | Read-only. Skips registration and takes about 20 seconds. |
 
@@ -198,6 +198,7 @@ Every resource is named `<type>-<purpose>-<prefix>`, so the name alone says what
 | Azure ML workspace | `mlw-<prefix>` | `mlw-demo` |
 | Function App plan | `plan-func-<prefix>` | `plan-func-demo` |
 | Function App | `func-<prefix>-<hash>` | `func-demo-...` |
+| Shared workload identity | `id-workloads-<prefix>` | `id-workloads-demo` |
 | Log Analytics, Application Insights | `log-<prefix>`, `appi-<prefix>` | `log-demo` |
 | DNS Private Resolver | `dnspr-<prefix>` | `dnspr-demo` |
 | VPN Gateway and its public IP | `vpng-<prefix>`, `pip-vpng-<prefix>` | `vpng-demo` |

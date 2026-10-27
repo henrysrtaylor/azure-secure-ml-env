@@ -33,6 +33,27 @@ Roles are assigned only to these groups, never to individual users.
 
 Admins also get Contributor on the resource group, which covers creating and changing resources. Contributor cannot assign roles, so the identity running step 4 needs Owner or User Access Administrator.
 
+## Workload identity
+
+Step 4 also creates one user-assigned managed identity, `id-workloads-<prefix>`, and adds it to the developers group. It therefore has exactly the developer roles in the table above. Assign it to any compute or other resource that needs the same access as a developer, and you never grant roles per resource.
+
+**Use it for:**
+
+- **Azure ML compute clusters.** In the studio, create the compute, open Advanced settings, set Assign identity to User-assigned and choose `id-workloads-<prefix>`. The cluster can then read and write the Data Lake and use the registry. A cluster created with a system-assigned identity has no roles and fails with permission errors.
+- **Other resources that accept a user-assigned identity,** such as a Function App, when its code needs the developer roles.
+
+A compute instance runs as the person who creates it by default, so it already has that person's group roles and needs no identity.
+
+**This is deliberately lenient.** Every resource using the identity gets the full developer role set, including writing application Key Vault secrets and pushing to the Container Registry, which a workload rarely needs. That is the trade-off for being able to create compute and other resources without any role setup. It suits a sandbox or a single trusted team. For stricter separation, create one identity per team or workload and give it only the roles it needs, either by assigning roles to it directly or by putting it in a separate group.
+
+It still needs a network path. Compute reaches the Data Lake through the ML managed network (see [architecture.md](architecture.md#service-to-service-connections)), and a Function App through its VNet integration. Group membership changes can take several minutes to apply, so a newly added identity can briefly fail with `403`.
+
+If step 4 cannot add the identity to the group (for example when you use an existing group you do not own), it prints a warning. Add it in Entra under the group's members, or run:
+
+```powershell
+az ad group member add --group <developers_group_id> --member-id (az identity show -g <resource_group> -n id-workloads-<prefix> --query principalId -o tsv)
+```
+
 ## Add members
 
 Membership changes take effect without redeploying anything. Only a group owner, or an Entra admin who can manage groups, can change membership. The user who ran step 4 is an owner of both groups.
@@ -133,3 +154,4 @@ Assignments of type `ServicePrincipal` belong to the services' own managed ident
 | Step 4 fails creating groups | Your account lacks permission to create groups. Create them in Entra and set the `RBAC_*_GROUP_ID` values in `.env` |
 | Step 4 fails creating role assignments | The deploying identity needs Owner or User Access Administrator |
 | Cannot read secrets in the ML workspace vault | By design. That vault is for admins only; use the application vault |
+| A compute cluster fails reading the Data Lake with a permission error | The cluster has no roles. Recreate it with the user-assigned identity `id-workloads-<prefix>` (see [Workload identity](#workload-identity)) |

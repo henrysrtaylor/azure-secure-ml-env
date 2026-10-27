@@ -38,6 +38,7 @@ func resourceNames(prefix string, seed string) object => {
   mlWorkspace: 'mlw-${prefix}'
   funcPlan: 'plan-func-${prefix}'
   funcApp: 'func-${prefix}-${take(uniqueString(seed), 6)}'
+  workloadIdentity: 'id-workloads-${prefix}'
   resolver: 'dnspr-${prefix}'
   resolverInbound: 'inbound'
   vpnGateway: 'vpng-${prefix}'

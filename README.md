@@ -25,7 +25,7 @@ See [docs/accessing-the-environment.md](docs/accessing-the-environment.md) for h
 | 3 | AI and ML | Container Registry (Premium), AI Search (Basic), AI Foundry (AI Services, including Azure OpenAI and Document Intelligence), two Custom Vision accounts (training and prediction), Azure Machine Learning workspace with its own storage account, Function App (Flex Consumption) with its plan, Log Analytics workspace, Application Insights |
 | 3 | Private connectivity | 13 private endpoints, one per service endpoint above, each registered in the matching private DNS zone |
 | 3 | Service connections | Shared private links from AI Search to the Data Lake (blob, dfs) and AI Foundry (embeddings), approved by the script, and Azure ML outbound rules to the Data Lake (blob, dfs), AI Foundry and AI Search. With `SEARCH_SKU="standard"`, also links for Foundry skills and the Function App (custom skills). With `FOUNDRY_LAKE_ACCESS="true"`, the Foundry account's document features can read the Data Lake. See [docs/architecture.md](docs/architecture.md#service-to-service-connections) |
-| 4 | Access control | Two Entra groups (`sg-<prefix>-admins`, `sg-<prefix>-developers`, created if they don't exist) and tiered role assignments on every resource, plus the roles the Search and ML workspace identities need to use the Data Lake and Foundry |
+| 4 | Access control | Two Entra groups (`sg-<prefix>-admins`, `sg-<prefix>-developers`, created if they don't exist) and tiered role assignments on every resource, plus the roles the Search and ML workspace identities need to use the Data Lake and Foundry, and one shared user-assigned identity (`id-workloads-<prefix>`) in the developers group |
 | 5 | VPN access (`vpn` or `both`) | DNS Private Resolver with an inbound endpoint, VPN Gateway with its public IP |
 | 5 | Bastion access (`bastion` or `both`) | Bastion host with its public IP, and per user a Windows Server 2022 VM with a network interface, a daily shutdown schedule, a setup run command and a self-deallocate role assignment |
 
@@ -53,7 +53,7 @@ Access is controlled by two Microsoft Entra security groups. Roles are assigned 
 | `sg-<prefix>-admins` | People who run the environment | Change resources (Contributor on the resource group), full control of the Data Lake and both Key Vaults, manage AI Search, AI Foundry, Custom Vision, Container Registry, the ML workspace and the Function App. Generate the VPN profile and reset VM passwords. |
 | `sg-<prefix>-developers` | Day-to-day data, ML and AI work | Read the resource group, read and write the Data Lake, read and write application secrets, and use the same AI, ML, Search and Function App roles as admins, including model deployments. Cannot change infrastructure and cannot read the ML workspace Key Vault. |
 
-Step 4 creates both groups if they don't exist, makes the deploying user their owner and a member of both, and assigns the roles. To use groups you already manage, set `RBAC_ADMIN_GROUP_ID` and `RBAC_DEVELOPER_GROUP_ID` in `.env`. The full role table, how to add and remove people and how to change what a tier can do are in [docs/rbac.md](docs/rbac.md).
+Step 4 creates both groups if they don't exist, makes the deploying user their owner and a member of both, and assigns the roles. It also creates a shared managed identity, `id-workloads-<prefix>`, and adds it to the developers group. Assign it to compute clusters and other resources so they get the same access as a developer without any role setup. This is deliberately lenient (every resource using it gets the full developer role set), which suits a sandbox or one trusted team; see [docs/rbac.md](docs/rbac.md#workload-identity) for when to use separate identities instead. To use groups you already manage, set `RBAC_ADMIN_GROUP_ID` and `RBAC_DEVELOPER_GROUP_ID` in `.env`. The full role table, how to add and remove people and how to change what a tier can do are in [docs/rbac.md](docs/rbac.md).
 
 ## 📋 Core Components
 
@@ -61,7 +61,7 @@ Step 4 creates both groups if they don't exist, makes the deploying user their o
 - `infra/01-network.bicep`: Virtual network, subnets, and private DNS zones linked to the VNet.
 - `infra/02-storage-keyvault.bicep`: ADLS Gen2 storage account and two Key Vaults (ML workspace, application secrets) with private endpoints.
 - `infra/03-ai-ml.bicep`: Container Registry, AI Search, AI Foundry (AI Services / Azure OpenAI, including Document Intelligence), Custom Vision, Azure Machine Learning, and a Flex Consumption Function App with private endpoints.
-- `infra/04-rbac.bicep`: Tiered roles (admin, developer) for Entra groups on each resource. Key authentication is disabled, so RBAC is required.
+- `infra/04-rbac.bicep`: Tiered roles (admin, developer) for Entra groups on each resource, and the shared workload identity. Key authentication is disabled, so RBAC is required.
 - `infra/05-access-vpn.bicep`: The VPN access layer (`ACCESS_MODE` `vpn` or `both`): DNS Private Resolver with an inbound endpoint and a VPN Gateway (P2S, OpenVPN, Entra ID).
 - `infra/05-access-bastion.bicep`: The Bastion access layer (`ACCESS_MODE` `bastion` or `both`): Azure Bastion and one Windows VM per user, each with its own generated local password, a daily shutdown and an idle shutdown.
 - `infra/scripts/configure-vm.ps1`: Runs on each VM after creation: installs developer tools and sets up the idle shutdown.
@@ -78,7 +78,9 @@ Step 4 creates both groups if they don't exist, makes the deploying user their o
 - [docs/accessing-the-environment.md](docs/accessing-the-environment.md): the two ways in (VPN for trusted teams, Bastion for third parties, or both) and when to use each.
 - [docs/vpn-client-setup.md](docs/vpn-client-setup.md): installing the VPN client and connecting.
 
-## 📈 Future Possible Roadmap
+## 📈 Optional Hardening for Security
+
+Not needed for a sandbox. Consider these for a shared environment with stricter compliance requirements:
 
 - Network security groups and route tables on the services subnet.
 - Azure Monitor Private Link Scope for Application Insights.

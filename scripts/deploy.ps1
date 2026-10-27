@@ -204,7 +204,19 @@ if ($Step -contains 4) {
     $adminId = Get-OrCreateGroup "sg-$prefix-admins" $cfg.RBAC_ADMIN_GROUP_ID "Admins of the $prefix AI environment" -AddMe
     $devId = Get-OrCreateGroup "sg-$prefix-developers" $cfg.RBAC_DEVELOPER_GROUP_ID "Developers of the $prefix AI environment" -AddMe
     Write-Host "Admins: $adminId`nDevelopers: $devId"
-    Deploy-Step '04-rbac.bicep' @("prefix=$prefix", "adminIds=$adminId", "developerIds=$devId", 'principalType=Group') + $foundryLakeArg
+    Deploy-Step '04-rbac.bicep' (@("prefix=$prefix", "location=$loc", "adminIds=$adminId", "developerIds=$devId", 'principalType=Group') + $foundryLakeArg)
+    # The shared workload identity gets developer access by being a member of the developers group.
+    if (-not $ValidateOnly -and $devId) {
+        try {
+            $workloadId = (Invoke-Az identity show -g $rg -n "id-workloads-$prefix" --query principalId -o tsv | Out-String).Trim()
+            $isMember = (Invoke-Az ad group member check --group $devId --member-id $workloadId --query value -o tsv | Out-String).Trim()
+            if ($isMember -ne 'true') {
+                Invoke-Az ad group member add --group $devId --member-id $workloadId
+                Write-Host "Added id-workloads-$prefix to the developers group."
+            }
+        }
+        catch { Write-Warning "Could not add id-workloads-$prefix to the developers group. Add it in Entra (group members, Add members): $($_.Exception.Message)" }
+    }
 }
 
 # Access layer, chosen by ACCESS_MODE: vpn (resolver and VPN gateway), bastion (Bastion and one VM per user), or both side by side.
