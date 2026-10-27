@@ -4,6 +4,8 @@ A Bicep-based Azure environment for AI engineering teams, built so that nothing 
 
 Use it as a personal sandbox in your own Azure subscription for testing and developing, or as a shared environment for a team. The same templates serve both: deploy it for yourself, or add people to the admins and developers groups and give them a way in.
 
+Many AI use cases can be built using this sandbox. It does not cover every ML or AI use case, but offers a secure infrastructure baseline to start from and build on.
+
 You choose how people get in:
 
 - **VPN**: a Point-to-Site VPN with Microsoft Entra ID sign-in, so people use their own tools from their own computers. Best for trusted teams and personal sandbox environments.
@@ -28,6 +30,19 @@ See [docs/accessing-the-environment.md](docs/accessing-the-environment.md) for h
 | 5 | Bastion access (`bastion` or `both`) | Bastion host with its public IP, and per user a Windows Server 2022 VM with a network interface, a daily shutdown schedule, a setup run command and a self-deallocate role assignment |
 
 Not deployed: ML compute, model deployments, Foundry projects and function code. See [docs/architecture.md](docs/architecture.md#not-included).
+
+### Choosing the AI Search tier
+
+`SEARCH_SKU` in `.env` sets the tier. The default, `basic`, is the cheapest tier that supports private endpoints.
+
+| Private connection | `basic` | `standard` (S1) |
+|---|---|---|
+| Search indexers reading the Data Lake | Yes | Yes |
+| Search calling Foundry for embeddings (vectorization) | Yes | Yes |
+| Search calling Foundry for other skills | No | Yes |
+| Search calling the Function App (custom skills) | No | Yes |
+
+**Why Basic cannot do custom skills.** Custom skills, and built-in skills such as OCR, run inside an AI enrichment skillset, which is compute-heavy. Microsoft disables private connections for skillsets on lower tiers to protect the search service. Embedding skills are the one exception. So a private custom skill, or a skillset that calls Foundry for anything but embeddings, needs `SEARCH_SKU="standard"`. The tier cannot be changed on a deployed service, so decide before you deploy. Details and the Function App caveats are in [docs/architecture.md](docs/architecture.md#service-to-service-connections).
 
 ## 👥 Groups and Access
 
@@ -122,6 +137,7 @@ To deploy:
 - An Azure subscription with quota in your chosen region for the services you deploy: Flex Consumption and Azure AI Services always, `VpnGw1AZ` for VPN access, and the VM size (default `Standard_B2ms`) for Bastion access
 - Owner (or Contributor plus User Access Administrator) on the subscription, to create resources and role assignments
 - Permission in Microsoft Entra ID to create groups, or existing groups to use instead
+- A way to get a Microsoft Graph token. Steps 4 and 6 call Microsoft Graph. If your tenant's Conditional Access requires a compliant device, sign in from one with the Graph scope (see the first step below)
 - A tenant admin, only if VPN sign-in asks for approval of the Azure VPN Client app
 
 To use the environment:
@@ -135,7 +151,7 @@ See [docs/vpn-client-setup.md](docs/vpn-client-setup.md) for installing the VPN 
 
 ### High-Level Steps
 
-1. Install the Azure CLI and Bicep, then sign in with `az login`.
+1. Install the Azure CLI and Bicep, then sign in with `az login --tenant <tenant_id>`. If your tenant's Conditional Access requires a compliant device, sign in from one with the Graph scope instead: `az login --tenant <tenant_id> --scope https://graph.microsoft.com//.default`. Without it, steps 4 and 6 fail with `AADSTS53000` (see [docs/deployment.md](docs/deployment.md#troubleshooting)).
 2. Copy `.env.example` to `.env` and fill in your values, including `ACCESS_MODE` (`vpn`, `bastion` or `both`).
 3. Run `./scripts/deploy.ps1` to deploy everything (about 45 minutes with a VPN Gateway, which is the slowest resource).
 4. Add users to the Entra groups. See [docs/rbac.md](docs/rbac.md).
@@ -160,6 +176,8 @@ Copy the template, then fill in your subscription ID, tenant ID, location, and `
 Copy-Item .env.example .env
 az login --tenant <your_tenant_id>
 ```
+
+If your tenant requires a compliant device for Microsoft Graph, add `--scope https://graph.microsoft.com//.default` to the sign-in and run it from a compliant device.
 
 ## 🛠️ Development
 

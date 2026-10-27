@@ -115,16 +115,19 @@ function Approve-SharedPrivateLinks {
     $targets = @($resources | Where-Object {
             ($_.type -eq 'Microsoft.Storage/storageAccounts' -and $_.id -match '/stlake') -or
             ($_.type -eq 'Microsoft.CognitiveServices/accounts' -and $_.id -match '/foundry-') -or
-            ($_.type -eq 'Microsoft.Web/sites' -and $_.id -match '/func-')
+            ($_.type -eq 'Microsoft.Web/sites' -and $_.id -match '/func-' -and $searchSku -ne 'basic')
         })
     $statusUri = "https://management.azure.com$($search.id)/sharedPrivateLinkResources?api-version=2025-05-01"
     for ($i = 0; $i -lt 20; $i++) {
         foreach ($t in $targets) {
-            $conns = (Invoke-Az network private-endpoint-connection list --id $t.id -o json | Out-String) | ConvertFrom-Json
-            foreach ($c in @($conns | Where-Object { $_.properties.privateLinkServiceConnectionState.status -eq 'Pending' })) {
-                Write-Host "Approving $($c.name)"
-                Invoke-Az network private-endpoint-connection approve --id $c.id --description 'Approved by deploy.ps1' -o none
+            try {
+                $conns = (Invoke-Az network private-endpoint-connection list --id $t.id -o json | Out-String) | ConvertFrom-Json
+                foreach ($c in @($conns | Where-Object { $_.properties.privateLinkServiceConnectionState.status -eq 'Pending' })) {
+                    Write-Host "Approving $($c.name)"
+                    Invoke-Az network private-endpoint-connection approve --id $c.id --description 'Approved by deploy.ps1' -o none
+                }
             }
+            catch { Write-Warning "Could not check private endpoint connections on $($t.id): $($_.Exception.Message)" }
         }
         $states = @(Invoke-Az rest --method get --url $statusUri --query "value[].properties.status" -o tsv | Where-Object { $_ })
         if ($states.Count -gt 0 -and @($states | Where-Object { $_ -ne 'Approved' }).Count -eq 0) {
