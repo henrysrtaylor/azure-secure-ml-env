@@ -1,6 +1,30 @@
 # azure-secure-ml-env
 
-A Bicep-based, private-only Azure environment for an AI engineering team. All PaaS services have public network access disabled and are reachable only through private endpoints. People connect either over a Point-to-Site VPN with Microsoft Entra ID authentication (for trusted teams), through Azure Bastion into per-user VMs (for third parties), or both. See [docs/accessing-the-environment.md](docs/accessing-the-environment.md).
+A Bicep-based Azure environment for AI engineering teams, built so that nothing is exposed to the internet. Every PaaS service has public network access disabled and is reachable only through a private endpoint, and key-based authentication is turned off wherever the service allows it, so access is controlled by Microsoft Entra ID and Azure RBAC.
+
+You choose how people get in:
+
+- **VPN**, for trusted teams: a Point-to-Site VPN with Microsoft Entra ID sign-in, so people use their own tools from their own computers.
+- **Bastion**, for third parties: browser-based remote desktop into a VM inside the network, one VM per user, so nothing is installed on their devices and work stays in the environment.
+- **Both**, side by side.
+
+See [docs/accessing-the-environment.md](docs/accessing-the-environment.md) for how to choose.
+
+## 🧩 What Gets Deployed
+
+`./scripts/deploy.ps1` creates the following in one resource group. Names follow `<type>-<purpose>-<prefix>` (see [docs/deployment.md](docs/deployment.md#naming)).
+
+| Step | Area | Resources |
+|---|---|---|
+| 1 | Network | Virtual network with four subnets (services, gateway, DNS resolver, Function integration), 12 private DNS zones linked to the network. With Bastion access: a Bastion subnet with its network security group, and a VM subnet |
+| 2 | Data and secrets | ADLS Gen2 Data Lake storage account, two Key Vaults (one for the ML workspace, one for application secrets) |
+| 3 | AI and ML | Container Registry (Premium), AI Search (Basic), AI Foundry (AI Services, including Azure OpenAI), Document Intelligence, two Custom Vision accounts (training and prediction), Azure Machine Learning workspace with its own storage account, Function App (Flex Consumption) with its plan, Log Analytics workspace, Application Insights |
+| 3 | Private connectivity | 14 private endpoints, one per service endpoint above, each registered in the matching private DNS zone |
+| 4 | Access control | Two Entra groups (`sg-<prefix>-admins`, `sg-<prefix>-developers`, created if they don't exist) and tiered role assignments on every resource |
+| 5 | VPN access (`vpn` or `both`) | DNS Private Resolver with an inbound endpoint, VPN Gateway with its public IP |
+| 5 | Bastion access (`bastion` or `both`) | Bastion host with its public IP, and per user a Windows Server 2022 VM with a network interface, a daily shutdown schedule, a setup run command and a self-deallocate role assignment |
+
+Not deployed: ML compute, model deployments, Foundry projects and function code. See [docs/architecture.md](docs/architecture.md#not-included).
 
 ## 📋 Core Components
 
