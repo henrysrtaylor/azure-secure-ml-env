@@ -78,7 +78,7 @@ Step 4 creates both groups if they don't exist, makes the deploying user their o
 - [docs/accessing-the-environment.md](docs/accessing-the-environment.md): the two ways in (VPN for trusted teams, Bastion for third parties, or both) and when to use each.
 - [docs/vpn-client-setup.md](docs/vpn-client-setup.md): installing the VPN client and connecting.
 
-## 📈 Future Roadmap
+## 📈 Future Possible Roadmap
 
 - Network security groups and route tables on the services subnet.
 - Azure Monitor Private Link Scope for Application Insights.
