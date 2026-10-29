@@ -23,14 +23,14 @@ Copy-Item .env.example .env
 az login --tenant <tenant_id>
 ```
 
-Edit `.env`. `.env` is git-ignored and holds your values.
+Edit `.env`. `.env` is git-ignored and holds your values. **Only `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_LOCATION`, `NAME_PREFIX` and `RESOURCE_GROUP_NAME` are required.** Every other key is optional and falls back to the default in the table.
 
 | Key | Meaning | Notes |
 |---|---|---|
 | `AZURE_SUBSCRIPTION_ID` | Target subscription | The script selects it with `az account set`. |
 | `AZURE_TENANT_ID` | Entra tenant | Used for the VPN sign-in settings and links. |
 | `AZURE_LOCATION` | Azure region | Must be a valid region name, for example `uksouth`. |
-| `NAME_PREFIX` | The `<prefix>` used in every resource name and throughout these docs | Use 3 to 8 lowercase letters or digits. Resource names are length limited, and storage and registry names drop hyphens. Do not change it after the first deployment. |
+| `NAME_PREFIX` | The `<prefix>` used in every resource name and throughout these docs | Use lowercase letters or digits. Storage and registry names drop hyphens. Do not change it after the first deployment. |
 | `RESOURCE_GROUP_NAME` | Resource group | Created if missing. |
 | `VNET_ADDRESS_SPACE` | VNet range | Default `10.0.0.0/16`. |
 | `SERVICES_SUBNET_PREFIX` | Private endpoint subnet | Default `10.0.1.0/24`. |
@@ -234,7 +234,7 @@ Flex Consumption bills only for execution. Azure ML, AI Services and Custom Visi
 - Changing role lists in `infra/04-rbac.bicep` adds assignments but does not remove old ones. See [rbac.md](rbac.md).
 - Changing `VNET_ADDRESS_SPACE` or a subnet prefix after the first deployment will fail or require recreating the environment.
 - After changing the VNet DNS server or gateway settings, generate and import a new VPN profile.
-- Switching `ACCESS_MODE` and rerunning step 5 adds the other access layer. It does not remove the one already deployed. To remove it, delete its resources (the VPN Gateway and resolver, or the Bastion host and VMs) by hand.
+- Switching `ACCESS_MODE` and rerunning step 5 adds the other access layer. It does not remove the one already deployed. To remove it, delete its resources (the VPN Gateway and resolver, or the Bastion host and VMs) by hand. Until you have, keep `ACCESS_MODE` set to `both`: step 1 builds the Bastion subnets from it, so a mode without Bastion would try to delete subnets that are in use.
 - Changing VM settings (size, disk, shutdown time, idle minutes) does not change existing VMs, only VMs created afterwards. The script counts VMs by the highest number that exists (`vm-<prefix>-NN`), so to recreate VMs delete the highest-numbered ones first, then rerun step 5.
 
 ## Tear down
@@ -277,7 +277,7 @@ Flex Consumption bills only for execution. Azure ML, AI Services and Custom Visi
 | Step 2 fails with `FOUNDRY_LAKE_ACCESS="true"` because the Foundry account does not exist yet | The firewall rule names the account before step 3 creates it. If Azure rejects it, run steps 2 and 3 with the setting `false`, then set it to `true` and rerun steps 2 and 4. |
 | `az ... --query` fails with `was unexpected at this time` | Quoting problem in Windows PowerShell when a query contains parentheses. Use the commands in this guide, or filter in PowerShell. |
 
-## Known limitations
+## Known limitations and considerations
 
 - **External (B2B guest) accounts.** They can be group members and use the VPN or Bastion like other accounts. See [rbac.md](rbac.md).
 - **No workloads.** There is no function code, ML compute instance or cluster, model deployment or Foundry project. Notebook and VS Code features in Azure ML studio need a compute instance that you create. See [architecture.md](architecture.md#not-included).
@@ -286,3 +286,5 @@ Flex Consumption bills only for execution. Azure ML, AI Services and Custom Visi
 - **Custom Vision is a legacy service.** Its accounts keep key authentication on, because its API is used with keys.
 - **VM sign-in has no MFA.** Bastion VMs use a local username and password. See [accessing-the-environment.md](accessing-the-environment.md).
 - **Windows only.** The script and commands target Windows PowerShell 5.1.
+- **Pinned tool installers.** `infra/scripts/configure-vm.ps1` downloads fixed versions of Git and Python. If a download link goes stale, that tool is not installed. The failure is logged in `C:\ProvisionTools.log` on the VM and never fails the deployment. Update the URLs in the script to refresh them.
+- **VM passwords on the command line.** The script passes them to `az`, so they are briefly visible to other processes on the machine running it. They are not stored in the deployment history. Run the script on a machine you trust.

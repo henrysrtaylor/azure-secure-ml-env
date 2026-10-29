@@ -10,6 +10,6 @@ Only the latest code on `main`.
 
 ## Scope
 
-This repository deploys real Azure infrastructure. The trade-offs listed under "Known limitations" in [docs/deployment.md](docs/deployment.md#known-limitations) are by design.
+This repository deploys real Azure infrastructure. The trade-offs listed under "Known limitations and considerations" in [docs/deployment.md](docs/deployment.md#known-limitations-and-considerations) are by design.
 
 Never include tenant IDs, subscription IDs, VPN profiles or passwords in issues or reports.

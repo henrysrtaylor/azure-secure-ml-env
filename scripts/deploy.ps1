@@ -10,15 +10,33 @@ $ErrorActionPreference = 'Stop'
 $infra = Join-Path $PSScriptRoot '..\infra'
 
 # Load .env into a hashtable
+if (-not (Test-Path $EnvFile)) { throw "$EnvFile not found. Copy .env.example to .env and fill it in." }
 $cfg = @{}
 Get-Content $EnvFile | Where-Object { $_ -match '^\s*[A-Z_]+=' } | ForEach-Object {
     $k, $v = $_ -split '=', 2
     $cfg[$k.Trim()] = $v.Trim().Trim('"')
 }
+# Only the five required settings need a value in .env; these defaults match .env.example.
+$defaults = @{
+    VNET_ADDRESS_SPACE                 = '10.0.0.0/16'
+    SERVICES_SUBNET_PREFIX             = '10.0.1.0/24'
+    GATEWAY_SUBNET_PREFIX              = '10.0.2.0/24'
+    DNS_INBOUND_SUBNET_PREFIX          = '10.0.3.0/28'
+    FUNCTION_INTEGRATION_SUBNET_PREFIX = '10.0.4.0/24'
+    VPN_GATEWAY_SKU                    = 'VpnGw1AZ'
+    VPN_CLIENT_ADDRESS_POOL            = '172.16.201.0/24'
+    VPN_AAD_AUDIENCE                   = 'c632b3df-fb67-4d84-bdcf-b95ad541b5c8'
+}
+foreach ($k in $defaults.Keys) { if (-not $cfg[$k]) { $cfg[$k] = $defaults[$k] } }
 
 $sub = $cfg.AZURE_SUBSCRIPTION_ID
 $rg = $cfg.RESOURCE_GROUP_NAME
 $prefix = $cfg.NAME_PREFIX
+foreach ($k in 'AZURE_SUBSCRIPTION_ID', 'AZURE_TENANT_ID', 'AZURE_LOCATION', 'NAME_PREFIX', 'RESOURCE_GROUP_NAME') {
+    if (-not $cfg[$k] -or $cfg[$k] -match '[<>]') {
+        throw "$k is missing or still a placeholder in $EnvFile. Copy .env.example to .env and set it."
+    }
+}
 if (-not $prefix) {
     throw "NAME_PREFIX is missing in $EnvFile. Copy .env.example to .env and set it."
 }
@@ -84,6 +102,11 @@ function Get-OrCreateGroup([string]$Name, [string]$ExistingId, [string]$Descript
 
 Invoke-Az account set --subscription $sub
 
+# Step 1 resets the VNet DNS server unless it is told the resolver address, which would break VPN name resolution on a rerun.
+function Get-KeptDnsArg {
+    $dns = @(Invoke-Az network vnet list -g $rg --query "[?name=='vnet-$prefix'].dhcpOptions.dnsServers[]" -o tsv | Where-Object { $_ })
+    if ($dns -contains $resolverIp) { @("dnsServer=$resolverIp") } else { @() }
+}
 # 24 characters from unambiguous letters and digits only (no characters that need quoting), with all three classes present.
 function New-VmPassword {
     $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
@@ -193,7 +216,10 @@ $net = @(
 # The Bastion and VM subnets belong to the VNet definition, so every step 1 run must carry them.
 if ($bastionOn) { $net += @("bastionSubnetPrefix=$bastionSubnetPrefix", "vmSubnetPrefix=$vmSubnetPrefix") }
 
-if ($Step -contains 1) { Deploy-Step '01-network.bicep' ($base + $net) }
+if ($Step -contains 1) {
+    $keptDns = @(Get-KeptDnsArg)
+    Deploy-Step '01-network.bicep' ($base + $net + $keptDns)
+}
 if ($Step -contains 2) { Deploy-Step '02-storage-keyvault.bicep' ($base + $foundryLakeArg) }
 if ($Step -contains 3) {
     Deploy-Step '03-ai-ml.bicep' ($base + @("searchSku=$searchSku"))
@@ -232,6 +258,7 @@ if ($Step -contains 5) {
         # Hand the resolver IP to the VNet so VPN clients pick it up in their profile.
         $dnsArg = @("dnsServer=$resolverIp")
     }
+    else { $dnsArg = @(Get-KeptDnsArg) }
     # Reruns step 1 to set the VNet DNS (vpn) and to make sure the Bastion subnets exist (bastion).
     Deploy-Step '01-network.bicep' ($base + $net + $dnsArg)
 

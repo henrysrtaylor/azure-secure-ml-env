@@ -88,7 +88,7 @@ az login --tenant <tenant_id>
 
 If your tenant's Conditional Access requires a compliant device, sign in from one with the Graph scope instead: `az login --tenant <tenant_id> --scope https://graph.microsoft.com//.default`. Without it, steps 4 and 6 fail with `AADSTS53000` (see [docs/deployment.md](docs/deployment.md#troubleshooting)).
 
-Edit `.env` and set your subscription ID, tenant ID, location, `NAME_PREFIX` (the `<prefix>` in resource names and throughout the docs) and `ACCESS_MODE` (`vpn`, `bastion` or `both`). Every setting is described in [docs/deployment.md](docs/deployment.md#configure).
+Edit `.env`. Only the subscription ID, tenant ID, location, `NAME_PREFIX` and resource group name are required; every other setting is optional and has a default. `NAME_PREFIX` is the `<prefix>` in resource names and throughout the docs, and `ACCESS_MODE` (`vpn`, `bastion` or `both`) chooses how people connect. Every setting is described in [docs/deployment.md](docs/deployment.md#configure).
 
 ### 2. Deploy
 
