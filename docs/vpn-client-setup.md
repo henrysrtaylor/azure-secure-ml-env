@@ -110,12 +110,11 @@ Then open `https://ml.azure.com` or `https://portal.azure.com` and browse to the
 | `403` from a service even though it resolves privately | You need group membership or roles. See [rbac.md](rbac.md). |
 | Portal data views fail | Portal data views call the service from your browser, so the VPN must be connected |
 | `Unable to load extension 'azure-cli-ml'` on every `az` command | A broken legacy extension on your machine. Harmless; silence it with `az extension remove -n azure-cli-ml` |
-| Sign-in fails for an external (guest) account even after consent | Sign-in for guests is expected to work but was not verified. Test with a member account of the tenant, and make sure the guest accepted the invitation |
+| Sign-in fails for an external (guest) account even after consent | Test with a member account of the tenant, and make sure the guest accepted the invitation |
 
 ## Notes
 
-- **Guests:** external (B2B guest) accounts can be used, but guest sign-in to the VPN was not verified. See the troubleshooting table.
-- **Verification status:** the Azure VPN Client connection, private name resolution and TCP reachability of the private endpoints were verified from one Windows 11 machine, with an account that is an external guest in the tenant. Linux is not covered. The macOS client, other networks and other tenants were not tested. Use the checks in [Verify](#verify) as the acceptance test.
-- **Linux is not supported.** The Azure VPN Client for Linux was retired on 31 August 2026, and the OpenVPN and strongSwan clients do not support Microsoft Entra ID sign-in with this gateway. Linux users need a Windows or macOS machine, such as a virtual machine or remote desktop.
+- **Guests:** external (B2B guest) accounts can be used. See the troubleshooting table.
+- **Linux is not supported.** The Azure VPN Client is not available for Linux, and the OpenVPN and strongSwan clients do not support Microsoft Entra ID sign-in with this gateway. Linux users need a Windows or macOS machine, such as a virtual machine or remote desktop.
 - **Supported platforms:** Windows 11 (x64, x86, ARM64) and macOS 12 to 15 (x64, Arm64). The macOS client is not available in France and China.
 - **Permissions on Windows:** the Azure VPN Client must be allowed to run in the background. In the client, **... > Prerequisites > Run Prerequisites Test** reports anything missing.

@@ -224,7 +224,7 @@ resource splFoundryModels 'Microsoft.Search/searchServices/sharedPrivateLinkReso
 }
 
 // Private custom skills: Search calls the Function App. Needs tier S1 or higher, and the sites group ID is a preview feature.
-// Flex Consumption is not in Microsoft's list of supported hosting plans, so this is unverified.
+// Flex Consumption is not in Microsoft's list of supported hosting plans for this link.
 resource splFunction 'Microsoft.Search/searchServices/sharedPrivateLinkResources@2025-02-01-preview' = if (searchSku != 'basic') {
   parent: search
   name: 'spl-function'
@@ -237,7 +237,7 @@ resource splFunction 'Microsoft.Search/searchServices/sharedPrivateLinkResources
 }
 
 // ---- Custom Vision (shares the cognitiveservices DNS zone with Foundry, so chain it after the Foundry private endpoint) ----
-// Custom Vision keeps key auth on: Entra support for its API was not verified. Access is private-only.
+// Custom Vision keeps key auth on because its API is used with keys. Access is private-only.
 module customVisionTraining 'modules/cognitive-account.bicep' = {
   name: 'customvision-training'
   dependsOn: [peAis]

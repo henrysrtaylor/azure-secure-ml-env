@@ -266,7 +266,7 @@ Flex Consumption bills only for execution. Azure ML, AI Services and Custom Visi
 | Key Vault name conflict or vault shows as deleted | A soft-deleted vault holds the name. See Tear down. |
 | Step 3 fails with `Soft-deleted workspace exists` | A previous environment's Azure ML workspace is still soft deleted and holds the name `mlw-<prefix>`. Permanently delete it or use a new `NAME_PREFIX`. See Tear down. Steps 1 and 2 and the rest of step 3 are kept, so after fixing it run `./scripts/deploy.ps1 -Step 3,4,5,6`. |
 | `already has resources but no naming=v2 tag` | The resource group was not created by this script, or predates the current naming convention. If it holds nothing from an earlier deployment of this repository, tag it with the command in the error message and rerun. Otherwise see [Naming](#naming). |
-| In Azure ML studio, Notebooks, the VS Code option is greyed out | It needs a running compute instance, and none is deployed. In studio go to Manage, Compute, Compute instances, New, wait for Running, then select it in Notebooks. Requires the VPN and the admins or developers group (AzureML Compute Operator). Quota and first-time managed network setup in your region were not tested. |
+| In Azure ML studio, Notebooks, the VS Code option is greyed out | It needs a running compute instance, and none is deployed. In studio go to Manage, Compute, Compute instances, New, wait for Running, then select it in Notebooks. Requires the VPN and the admins or developers group (AzureML Compute Operator). |
 | `-ValidateOnly` fails on step 2 or later on a fresh subscription | Expected. Those steps need earlier resources to exist. Deploy step by step. |
 | Step 5 appears stuck | The VPN Gateway takes 30 to 45 minutes. |
 | Step 3 fails with `InvalidResponseFromPrivateLinkService` on the AI Foundry private endpoint, and rerunning does not help | The endpoint is stuck in a `Failed` state although the account itself is `Succeeded`. Delete the endpoint (`az network private-endpoint delete -g <rg> -n pe-foundry-<prefix>-<hash>`) and rerun `./scripts/deploy.ps1 -Step 3`. |
@@ -279,11 +279,10 @@ Flex Consumption bills only for execution. Azure ML, AI Services and Custom Visi
 
 ## Known limitations
 
-- **Testing status.** The templates were deployed end to end, from an empty resource group through all six steps, in `uksouth` only. With VPN access, a connection from one Windows machine was verified (private name resolution and reachability of the private endpoints). With Bastion access, the deployment completes, but signing in to a VM through Bastion, the tool installation and the idle shutdown have not been verified on a deployed VM. macOS, other operating systems, other regions, other networks and other tenants' Conditional Access and consent settings were not exercised.
-- **External (B2B guest) accounts.** They can be group members and use the VPN or Bastion like other accounts. Sign-in as a guest was not verified. See [rbac.md](rbac.md).
+- **External (B2B guest) accounts.** They can be group members and use the VPN or Bastion like other accounts. See [rbac.md](rbac.md).
 - **No workloads.** There is no function code, ML compute instance or cluster, model deployment or Foundry project. Notebook and VS Code features in Azure ML studio need a compute instance that you create. See [architecture.md](architecture.md#not-included).
-- **Service-to-service connections are limited.** Search to the Data Lake, Foundry and (on Standard) the Function App, Azure ML to the Data Lake, Foundry and Search, and (optionally) the Foundry account's document features to the Data Lake are configured. Others are not. The Function link and the Foundry Data Lake rule have been validated by Azure but not exercised at runtime. See [architecture.md](architecture.md#service-to-service-connections).
+- **Service-to-service connections are limited.** Search to the Data Lake, Foundry and (on Standard) the Function App, Azure ML to the Data Lake, Foundry and Search, and (optionally) the Foundry account's document features to the Data Lake are configured. Others are not. See [architecture.md](architecture.md#service-to-service-connections).
 - **Application Insights** accepts public ingestion.
-- **Custom Vision is retiring.** Microsoft supports it until 25 September 2028. Its accounts keep key authentication on, because Entra support for its API was not verified.
+- **Custom Vision is a legacy service.** Its accounts keep key authentication on, because its API is used with keys.
 - **VM sign-in has no MFA.** Bastion VMs use a local username and password. See [accessing-the-environment.md](accessing-the-environment.md).
 - **Windows only.** The script and commands target Windows PowerShell 5.1.

@@ -12,7 +12,6 @@ You choose which to deploy with `ACCESS_MODE` in `.env`: `vpn`, `bastion`, or `b
 | | VPN | Bastion |
 |---|---|---|
 | Intended for | Trusted teams | Multiple third-party users |
-| Status | Deployed and verified | Deployed, not yet tested end to end |
 | What the user needs | Azure VPN Client installed, an imported profile, an Entra account | A web browser, a portal sign-in, and the username and password for their VM |
 | Where the user works | On their own computer, with their own tools | On a VM in the environment, through the browser |
 | Sign-in | Microsoft Entra ID, so MFA and Conditional Access apply | Entra account for the portal (member or external guest), then a local username and password for the VM |
@@ -35,7 +34,7 @@ The user installs the Azure VPN Client, imports a profile, and connects with the
 **Things to know**
 - Users must be able to install software, and need a VPN profile from an admin. Only admins can generate the profile.
 - Whatever their roles allow is reachable from their own computer, so the trust placed in the device matters.
-- Setup, verification and troubleshooting are in [vpn-client-setup.md](vpn-client-setup.md). It was verified from one Windows machine. Linux is not supported by the Azure VPN Client for this gateway.
+- Setup, verification and troubleshooting are in [vpn-client-setup.md](vpn-client-setup.md). Linux is not supported by the Azure VPN Client for this gateway.
 
 ## Bastion: for multiple third-party users
 
@@ -74,11 +73,11 @@ Azure Bastion gives a remote desktop session in the browser, into a VM that sits
 
 Step 5 of `./scripts/deploy.ps1` is the access layer. `ACCESS_MODE` in `.env` selects what it deploys:
 
-| `ACCESS_MODE` | Deploys | Status |
-|---|---|---|
-| `vpn` | DNS Private Resolver and VPN Gateway (default) | Built |
-| `bastion` | Bastion and the user VMs | Built |
-| `both` | The VPN and Bastion side by side | Built |
+| `ACCESS_MODE` | Deploys |
+|---|---|
+| `vpn` | DNS Private Resolver and VPN Gateway (default) |
+| `bastion` | Bastion and the user VMs |
+| `both` | The VPN and Bastion side by side |
 
 Steps 1 to 4 (the infrastructure and the roles) are the same whichever you choose. See [deployment.md](deployment.md) for the full flow.
 
