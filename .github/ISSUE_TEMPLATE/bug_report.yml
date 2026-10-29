@@ -1,0 +1,63 @@
+name: Bug report
+description: Something fails or does not behave as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the troubleshooting tables in [docs/deployment.md](https://github.com/henrysrtaylor/azure-secure-ml-env/blob/main/docs/deployment.md#troubleshooting) first.
+        Remove tenant IDs, subscription IDs and any passwords from what you paste.
+  - type: dropdown
+    id: step
+    attributes:
+      label: Deployment step
+      options:
+        - "1 - Network"
+        - "2 - Storage and Key Vault"
+        - "3 - AI and ML"
+        - "4 - RBAC"
+        - "5 - Access (VPN or Bastion)"
+        - "6 - Summary"
+        - "Connecting or using the environment"
+        - "Documentation"
+    validations:
+      required: true
+  - type: dropdown
+    id: access_mode
+    attributes:
+      label: ACCESS_MODE
+      options:
+        - vpn
+        - bastion
+        - both
+    validations:
+      required: true
+  - type: input
+    id: region
+    attributes:
+      label: Azure region
+      placeholder: uksouth
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Tool versions
+      description: Output of `$PSVersionTable.PSVersion` and `az version`, summarised.
+      placeholder: PowerShell 5.1, az 2.x, bicep 0.x
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Error output
+      description: The command you ran and the full error, with IDs removed.
+      render: text
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you already tried
