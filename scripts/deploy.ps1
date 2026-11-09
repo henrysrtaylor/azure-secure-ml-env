@@ -77,7 +77,7 @@ function Invoke-Az {
     throw "az $($args -join ' ') failed"
 }
 
-function Deploy-Step([string]$File, [string[]]$Params) {
+function Invoke-BicepStep([string]$File, [string[]]$Params) {
     $path = Join-Path $infra $File
     Write-Host "`n=== $File ===" -ForegroundColor Cyan
     Invoke-Az bicep build --file $path --stdout | Out-Null
@@ -218,11 +218,11 @@ if ($bastionOn) { $net += @("bastionSubnetPrefix=$bastionSubnetPrefix", "vmSubne
 
 if ($Step -contains 1) {
     $keptDns = @(Get-KeptDnsArg)
-    Deploy-Step '01-network.bicep' ($base + $net + $keptDns)
+    Invoke-BicepStep '01-network.bicep' ($base + $net + $keptDns)
 }
-if ($Step -contains 2) { Deploy-Step '02-storage-keyvault.bicep' ($base + $foundryLakeArg) }
+if ($Step -contains 2) { Invoke-BicepStep '02-storage-keyvault.bicep' ($base + $foundryLakeArg) }
 if ($Step -contains 3) {
-    Deploy-Step '03-ai-ml.bicep' ($base + @("searchSku=$searchSku"))
+    Invoke-BicepStep '03-ai-ml.bicep' ($base + @("searchSku=$searchSku"))
     if (-not $ValidateOnly) { Approve-SharedPrivateLinks }
 }
 if ($Step -contains 4) {
@@ -230,7 +230,7 @@ if ($Step -contains 4) {
     $adminId = Get-OrCreateGroup "sg-$prefix-admins" $cfg.RBAC_ADMIN_GROUP_ID "Admins of the $prefix AI environment" -AddMe
     $devId = Get-OrCreateGroup "sg-$prefix-developers" $cfg.RBAC_DEVELOPER_GROUP_ID "Developers of the $prefix AI environment" -AddMe
     Write-Host "Admins: $adminId`nDevelopers: $devId"
-    Deploy-Step '04-rbac.bicep' (@("prefix=$prefix", "location=$loc", "adminIds=$adminId", "developerIds=$devId", 'principalType=Group') + $foundryLakeArg)
+    Invoke-BicepStep '04-rbac.bicep' (@("prefix=$prefix", "location=$loc", "adminIds=$adminId", "developerIds=$devId", 'principalType=Group') + $foundryLakeArg)
     # The shared workload identity gets developer access by being a member of the developers group.
     if (-not $ValidateOnly -and $devId) {
         try {
@@ -249,7 +249,7 @@ if ($Step -contains 4) {
 if ($Step -contains 5) {
     $dnsArg = @()
     if ($vpnOn) {
-        Deploy-Step '05-access-vpn.bicep' ($base + @(
+        Invoke-BicepStep '05-access-vpn.bicep' ($base + @(
                 "tenantId=$($cfg.AZURE_TENANT_ID)",
                 "vpnGatewaySku=$($cfg.VPN_GATEWAY_SKU)",
                 "vpnClientAddressPool=$($cfg.VPN_CLIENT_ADDRESS_POOL)",
@@ -260,7 +260,7 @@ if ($Step -contains 5) {
     }
     else { $dnsArg = @(Get-KeptDnsArg) }
     # Reruns step 1 to set the VNet DNS (vpn) and to make sure the Bastion subnets exist (bastion).
-    Deploy-Step '01-network.bicep' ($base + $net + $dnsArg)
+    Invoke-BicepStep '01-network.bicep' ($base + $net + $dnsArg)
 
     if ($bastionOn) {
         $existingVms = Get-ExistingVmNumber
@@ -270,7 +270,7 @@ if ($Step -contains 5) {
         if ($shutdown -eq 'none') { $shutdown = '' }
         $tools = (Get-Setting 'VM_INSTALL_TOOLS' 'true').ToLower()
         Write-Host "Bastion: $bastionSku, $vmCount VM(s) wanted, $existingVms already exist, $newVms to create"
-        Deploy-Step '05-access-bastion.bicep' ($base + @(
+        Invoke-BicepStep '05-access-bastion.bicep' ($base + @(
                 "bastionSku=$bastionSku",
                 "vmCount=$vmCount",
                 "existingVmCount=$existingVms",
