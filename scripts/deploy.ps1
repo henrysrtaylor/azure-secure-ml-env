@@ -49,12 +49,12 @@ if ($accessMode -notin 'vpn', 'bastion', 'both') {
 $vpnOn = $accessMode -in 'vpn', 'both'
 $bastionOn = $accessMode -in 'bastion', 'both'
 function Get-Setting($name, $default) { if ($cfg[$name]) { $cfg[$name] } else { $default } }
-# SEARCH_SKU: basic, or standard (S1) for private custom skills and Foundry skills. FOUNDRY_LAKE_ACCESS: see docs/architecture.md.
+# SEARCH_SKU: basic, or standard (S1) for private custom skills and Foundry skills.
 $searchSku = (Get-Setting 'SEARCH_SKU' 'basic').ToLower()
 if ($searchSku -notin 'basic', 'standard') { throw "SEARCH_SKU must be basic or standard (got '$searchSku')." }
-$foundryLake = (Get-Setting 'FOUNDRY_LAKE_ACCESS' 'false').ToLower()
-if ($foundryLake -notin 'true', 'false') { throw "FOUNDRY_LAKE_ACCESS must be true or false (got '$foundryLake')." }
-$foundryLakeArg = @("foundryLakeAccess=$foundryLake")
+# BING_GROUNDING: creates a Grounding with Bing Search resource (public, outside the private network). See docs/architecture.md.
+$bingGrounding = (Get-Setting 'BING_GROUNDING' 'false').ToLower()
+if ($bingGrounding -notin 'true', 'false') { throw "BING_GROUNDING must be true or false (got '$bingGrounding')." }
 if ($bastionOn) {
     $bastionSku = Get-Setting 'BASTION_SKU' 'Basic'
     if ($bastionSku -notin 'Basic', 'Standard') { throw "BASTION_SKU must be Basic or Standard (got '$bastionSku')." }
@@ -164,10 +164,12 @@ function Approve-SharedPrivateLinks {
 # Step 6 only reads the environment, so it needs no registration or resource group.
 $changesAzure = @($Step | Where-Object { $_ -le 5 }).Count -gt 0
 if ($changesAzure -and -not $ValidateOnly) {
-    foreach ($ns in 'Microsoft.Network', 'Microsoft.Storage', 'Microsoft.KeyVault', 'Microsoft.ContainerRegistry',
+    $namespaces = @('Microsoft.Network', 'Microsoft.Storage', 'Microsoft.KeyVault', 'Microsoft.ContainerRegistry',
         'Microsoft.Search', 'Microsoft.CognitiveServices', 'Microsoft.MachineLearningServices',
         'Microsoft.Web', 'Microsoft.App', 'Microsoft.OperationalInsights', 'Microsoft.Insights',
-        'Microsoft.Compute', 'Microsoft.DevTestLab') {
+        'Microsoft.Compute', 'Microsoft.DevTestLab')
+    if ($bingGrounding -eq 'true') { $namespaces += 'Microsoft.Bing' }
+    foreach ($ns in $namespaces) {
         if ((Invoke-Az provider show --namespace $ns --query registrationState -o tsv) -ne 'Registered') {
             Invoke-Az provider register --namespace $ns --wait -o none
         }
@@ -220,9 +222,9 @@ if ($Step -contains 1) {
     $keptDns = @(Get-KeptDnsArg)
     Invoke-BicepStep '01-network.bicep' ($base + $net + $keptDns)
 }
-if ($Step -contains 2) { Invoke-BicepStep '02-storage-keyvault.bicep' ($base + $foundryLakeArg) }
+if ($Step -contains 2) { Invoke-BicepStep '02-storage-keyvault.bicep' $base }
 if ($Step -contains 3) {
-    Invoke-BicepStep '03-ai-ml.bicep' ($base + @("searchSku=$searchSku"))
+    Invoke-BicepStep '03-ai-ml.bicep' ($base + @("searchSku=$searchSku", "enableBingGrounding=$bingGrounding"))
     if (-not $ValidateOnly) { Approve-SharedPrivateLinks }
 }
 if ($Step -contains 4) {
@@ -230,7 +232,7 @@ if ($Step -contains 4) {
     $adminId = Get-OrCreateGroup "sg-$prefix-admins" $cfg.RBAC_ADMIN_GROUP_ID "Admins of the $prefix AI environment" -AddMe
     $devId = Get-OrCreateGroup "sg-$prefix-developers" $cfg.RBAC_DEVELOPER_GROUP_ID "Developers of the $prefix AI environment" -AddMe
     Write-Host "Admins: $adminId`nDevelopers: $devId"
-    Invoke-BicepStep '04-rbac.bicep' (@("prefix=$prefix", "location=$loc", "adminIds=$adminId", "developerIds=$devId", 'principalType=Group') + $foundryLakeArg)
+    Invoke-BicepStep '04-rbac.bicep' @("prefix=$prefix", "location=$loc", "adminIds=$adminId", "developerIds=$devId", 'principalType=Group')
     # The shared workload identity gets developer access by being a member of the developers group.
     if (-not $ValidateOnly -and $devId) {
         try {

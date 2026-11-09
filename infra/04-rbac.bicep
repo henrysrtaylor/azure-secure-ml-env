@@ -8,8 +8,6 @@ param adminIds string = ''
 param developerIds string = ''
 @allowed(['User', 'Group', 'ServicePrincipal'])
 param principalType string = 'Group'
-// Same setting as step 2: lets the Foundry account (Document Intelligence) read the Data Lake.
-param foundryLakeAccess bool = false
 
 var n = resourceNames(prefix, resourceGroup().id)
 
@@ -298,17 +296,6 @@ resource searchUsesFoundryServices 'Microsoft.Authorization/roleAssignments@2022
     principalId: search.identity.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: roleId(r.cognitiveServicesUser)
-  }
-}
-
-// The Foundry account reads training data and batch input from the Data Lake and writes batch results to it.
-resource foundryUsesLake 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (foundryLakeAccess) {
-  scope: lake
-  name: guid(lake.id, ais.id, r.blobContributor)
-  properties: {
-    principalId: ais.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: roleId(r.blobContributor)
   }
 }
 
