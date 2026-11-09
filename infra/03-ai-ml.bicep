@@ -6,6 +6,8 @@ param location string = resourceGroup().location
 // basic: indexers and embedding connections only. standard (S1): also private custom skills (Function App) and Foundry skills.
 @allowed(['basic', 'standard'])
 param searchSku string = 'basic'
+// Creates a Grounding with Bing Search resource. It has no private endpoint, so queries leave the private network.
+param enableBingGrounding bool = false
 
 var n = resourceNames(prefix, resourceGroup().id)
 var vnetSubnet = '${resourceId('Microsoft.Network/virtualNetworks', n.vnet)}/subnets'
@@ -59,6 +61,16 @@ resource ais 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
     disableLocalAuth: true
     networkAcls: { defaultAction: 'Deny' }
   }
+}
+
+// ---- Grounding with Bing Search (optional): global, public-only, key-based. Connect it to a Foundry project yourself. ----
+// The Bing types are not published in Bicep yet.
+#disable-next-line BCP081
+resource bing 'Microsoft.Bing/accounts@2020-06-10' = if (enableBingGrounding) {
+  name: n.bingGrounding
+  location: 'global'
+  kind: 'Bing.Grounding'
+  sku: { name: 'G1' }
 }
 
 // ---- Storage for ML workspace and Function deployment package ----

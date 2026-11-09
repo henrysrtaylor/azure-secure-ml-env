@@ -65,7 +65,6 @@ Every service has public access disabled, so a service that calls another one ne
 | AI Search (embeddings) | AI Foundry | Shared private link `spl-foundry-openai` (`openai_account`) | Search identity: Cognitive Services OpenAI User on the Foundry account |
 | AI Search (Foundry skills) | AI Foundry | Shared private link `spl-foundry-models` (`foundry_account`). Only with `SEARCH_SKU="standard"` | Search identity: Cognitive Services User on the Foundry account |
 | AI Search (custom skills) | Function App | Shared private link `spl-function` (`sites`). Only with `SEARCH_SKU="standard"` | Not a role: the Function App must authenticate Search itself (for example Entra sign-in on the app), and the skill definition must use Search's identity |
-| AI Foundry (document features) | Data Lake | Firewall rule on the Data Lake for the Foundry account. Only with `FOUNDRY_LAKE_ACCESS="true"` (see below) | Foundry identity: Storage Blob Data Contributor on the Data Lake |
 | Azure ML jobs and studio | Data Lake | Managed network outbound private endpoints `lake-blob` and `lake-dfs` | ML workspace identity: Storage Blob Data Contributor on the Data Lake |
 | Azure ML jobs | AI Foundry and AI Search | Managed network outbound private endpoints `foundry` (`account`) and `search` (`searchService`) | Roles for the compute that runs the job, assigned by you |
 | Azure ML (creating the managed private endpoints) | Data Lake, Foundry, Search | Not applicable | ML workspace identity: Azure AI Enterprise Network Connection Approver on each target |
@@ -79,9 +78,28 @@ How they work:
 - **Search tier.** On `basic` (the default), Search supports private indexers without skillsets and private embedding connections to Foundry (integrated vectorization). It does not support private connections for skillsets with other built-in skills, for custom skills (the Function App), or for the `foundry_account` link, because Basic does not allow private connections for AI enrichment. Those need `SEARCH_SKU="standard"` (S1). Basic also allows only four distinct link types (the default uses three: `blob`, `dfs` and `openai_account`). The tier cannot be changed in place, so changing `SEARCH_SKU` on a deployed environment means deleting the search service first and rerunning step 3.
 - **Function App as a custom skill.** Microsoft documents shared private links to Function Apps on Consumption, Premium and Dedicated plans, and does not list Flex Consumption, which this repository uses. The `sites` link also needs a preview API version.
 - **Document Intelligence runs through the Foundry account.** There is no separate Document Intelligence account. The Foundry (AI Services) account includes it, and it is reached on the same private endpoint, with the same Entra roles (the Foundry User role covers its data actions). That keeps one endpoint and one set of roles, at the cost of sharing the Foundry account's quota with other Foundry workloads. Environments deployed from an earlier version of this repository may still have a `docintel-` account. Nothing here uses it, so delete it and its private endpoint by hand if you do not need it.
-- **Foundry and the Data Lake.** The Foundry account cannot create an outbound private link, so the only supported way for its document features to read storage is the "resource instance" firewall exception, which does not work while the storage account's public network access is `Disabled`. With `FOUNDRY_LAKE_ACCESS="true"` the Data Lake's public endpoint is switched to "enabled from selected networks" with the default action `Deny`, no IP or network rules, and a single rule that allows only the Foundry account. Everyone else, including other Azure services, is still denied, and the private endpoints keep working. It is a weaker posture than `Disabled`, and the setting is off by default. It applies to the whole Data Lake, not one container, and it lets the Foundry account's identity read and write it, not only Document Intelligence. Document Intelligence Studio needs the Data Lake reachable from your browser too, which the private endpoint gives you over the VPN or a Bastion VM.
+- **Foundry and the Data Lake.** Not configured. Document Intelligence works over the Foundry account's private endpoint when you send the file in the request, which needs no storage access. Reading files from the Data Lake itself (analyze by blob URL, batch, custom model training) would need a path that this environment does not have: the Foundry account cannot create an outbound private link, and Microsoft documents only a managed identity route for a [firewalled storage account](https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/authentication/managed-identities). Storage firewall rules apply to the storage account's public endpoint ([Azure Storage firewall rules](https://learn.microsoft.com/en-us/azure/storage/common/storage-network-security)), so this would need the Data Lake's public endpoint enabled. Microsoft does not document a fully private path, and does not say outright that it fails when public network access is `Disabled`, so treat that as inferred.
 - **Not configured:** Foundry reading from the Data Lake or from Search through its own connections, and Application Insights (which accepts public ingestion). Add the network path and roles for these when you need them. Custom Vision needs no connections: it keeps its images in its own managed storage and is used through its API.
 - **Web search for Foundry agents.** The Foundry Web Search tool needs no extra resource or connection: add it to an agent in a Foundry project. It acts as a public endpoint, because search traffic ignores VPN and private endpoint routing, and queries leave the Azure compliance boundary (Microsoft's Data Protection Addendum does not apply). Do not use it where prompts can contain sensitive data. Admins can block it with Azure Policy. A separate Grounding with Bing Search resource is not deployed here.
+
+### Grounding with Bing Search (optional)
+
+With `BING_GROUNDING="true"`, step 3 creates a `Microsoft.Bing/accounts` resource (kind `Bing.Grounding`, SKU `G1`, location `global`). The templates create only the resource. By itself it does nothing, and it is not a search API you can call directly: Microsoft documents that the tool returns no raw results to developers. It only works as the explicit Grounding with Bing Search tool of a Foundry agent, which needs:
+
+1. **A Foundry project** on the Foundry account, and **a supported model deployment** for the agent. The templates create neither.
+2. **A connection** from that project to the Bing resource, using the Bing key (`GroundingWithBingSearch`). Create it in the Foundry portal ("Add a new connection to your project", names change between portal versions), or define it on the Foundry account in Bicep like Microsoft's `45-basic-agent-bing` sample.
+3. **Roles.** Creating the connection needs Contributor on the resource group (to read the Bing key) and Foundry Project Manager on the project. Step 4 assigns neither Foundry Project Manager nor project roles, and developers have Reader only. Running agents needs Foundry User, which both groups already have.
+
+The Grounding with Bing tool is not supported inside a Foundry toolbox, so it cannot be exposed as a toolbox MCP endpoint. Web Search (above) can, and needs no Bing resource.
+
+Trade-offs:
+
+- **No private path.** Microsoft documents that the tool works with a network-secured Foundry project, but Bing traffic uses public egress and ignores VPN and private endpoint routing. Nothing here configures agent networking.
+- **Data leaves the boundary.** The Bing query the model builds from the prompt, the tool parameters and the resource key are sent to Bing, outside the Azure compliance boundary. The Data Protection Addendum does not apply. Do not use it where prompts can contain sensitive data from the Data Lake.
+- **Key authentication.** The connection uses the Bing API key, unlike the Entra-only services elsewhere here.
+- **Terms and subscription.** Deploying the resource from a template means you accept the Grounding with Bing terms of use. Only paid and pay-as-you-go subscriptions are eligible.
+- **Cost.** Usage is billed per tool call, on top of the model's own cost.
+- **Removal.** Setting `BING_GROUNDING="false"` does not delete an existing Bing resource: delete it by hand. An admin can block the resource type with Azure Policy.
 
 ## Network
 
@@ -138,6 +156,7 @@ The VNet address space is `10.0.0.0/16`. With VPN access the resolver inbound en
 
 - Model deployments and Foundry projects.
 - Foundry connections to the Data Lake and to Search.
+- The Foundry project connection to Grounding with Bing Search (the resource is optional, the connection is made separately).
 - Custom network security group rules on the service subnets. Only the Bastion subnet has an NSG from these templates. Empty NSGs on other subnets, if any, come from the subscription.
 - Azure Monitor Private Link Scope (Application Insights accepts public ingestion).
 

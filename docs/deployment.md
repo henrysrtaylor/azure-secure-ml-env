@@ -41,7 +41,7 @@ Edit `.env`. `.env` is git-ignored and holds your values. **Only `AZURE_SUBSCRIP
 | `RBAC_ADMIN_GROUP_ID` | Existing admins group | Leave blank to create `sg-<prefix>-admins`. |
 | `RBAC_DEVELOPER_GROUP_ID` | Existing developers group | Leave blank to create `sg-<prefix>-developers`. |
 | `SEARCH_SKU` | AI Search tier | `basic` (default) or `standard` (S1). Standard is needed for private custom skills (Function App) and Foundry skills, because Basic does not allow private connections for AI enrichment skillsets (embedding skills are the exception). The tier cannot be changed on a deployed service, so delete the search service before switching. See [architecture.md](architecture.md#service-to-service-connections). |
-| `FOUNDRY_LAKE_ACCESS` | Let the Foundry account's document features (Document Intelligence) read the Data Lake | `false` (default) or `true`. `true` switches the Data Lake's public endpoint to "enabled from selected networks", default action `Deny`, with one rule for the Foundry account, and gives the Foundry identity Storage Blob Data Contributor on it. Run steps 2 and 4 after changing it. Read the trade-off in [architecture.md](architecture.md#service-to-service-connections) first. |
+| `BING_GROUNDING` | Create a Grounding with Bing Search resource for Foundry agents | `false` (default) or `true`. `true` creates `bing-<prefix>-<hash>` in step 3 and registers the `Microsoft.Bing` provider. It has no private endpoint and uses key authentication, so search queries leave the private network. The script does not connect it to a Foundry project: see [architecture.md](architecture.md#grounding-with-bing-search-optional). |
 | `VPN_GATEWAY_SKU` | Gateway SKU | Used with `vpn` and `both`. Default `VpnGw1AZ`. |
 | `VPN_CLIENT_ADDRESS_POOL` | Address range handed to VPN clients | Default `172.16.201.0/24`. Must not overlap the VNet. |
 | `VPN_AAD_AUDIENCE` | Azure VPN Client app ID | Default is the public-cloud ID `c632b3df-fb67-4d84-bdcf-b95ad541b5c8`. Sovereign clouds use a different ID. |
@@ -194,6 +194,7 @@ Every resource is named `<type>-<purpose>-<prefix>`, so the name alone says what
 | Container Registry | `acr<prefix><hash>` | `acrdemo...` |
 | AI Search | `srch-<prefix>-<hash>` | `srch-demo-...` |
 | AI Foundry (AI Services) | `foundry-<prefix>-<hash>` | `foundry-demo-...` |
+| Grounding with Bing Search (only with `BING_GROUNDING="true"`) | `bing-<prefix>-<hash>` | `bing-demo-...` |
 | Custom Vision training / prediction | `customvision-train-<prefix>-<hash>`, `customvision-pred-<prefix>-<hash>` | `customvision-train-demo-...` |
 | Azure ML workspace | `mlw-<prefix>` | `mlw-demo` |
 | Function App plan | `plan-func-<prefix>` | `plan-func-demo` |
@@ -274,14 +275,13 @@ Flex Consumption bills only for execution. Azure ML, AI Services and Custom Visi
 | Step 3 ends with `Search shared private links are not all approved yet` | The links were created but a pending connection was not approved in time. Rerun `./scripts/deploy.ps1 -Step 3` (it only approves and waits), or approve them under the Data Lake's and the Foundry account's Networking, Private endpoint connections. Check the state with `az rest --method get --url "https://management.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Search/searchServices/<search>/sharedPrivateLinkResources?api-version=2025-05-01" --query "value[].[name,properties.status]" -o tsv`. |
 | An indexer fails to connect to the Data Lake or Foundry | Check that the indexer's configuration sets `"executionEnvironment": "private"` and that the matching shared private link shows `Approved`. Skillsets that use built-in skills other than embeddings, or custom skills, need `SEARCH_SKU="standard"`. See [architecture.md](architecture.md#service-to-service-connections). |
 | Step 3 fails creating `spl-function` | The Function link needs Search S1 or higher and a preview API, and Flex Consumption is not a documented target. Remove it by deleting the `splFunction` resource in `infra/03-ai-ml.bicep` if you do not need private custom skills. |
-| Step 2 fails with `FOUNDRY_LAKE_ACCESS="true"` because the Foundry account does not exist yet | The firewall rule names the account before step 3 creates it. If Azure rejects it, run steps 2 and 3 with the setting `false`, then set it to `true` and rerun steps 2 and 4. |
 | `az ... --query` fails with `was unexpected at this time` | Quoting problem in Windows PowerShell when a query contains parentheses. Use the commands in this guide, or filter in PowerShell. |
 
 ## Known limitations and considerations
 
 - **External (B2B guest) accounts.** They can be group members and use the VPN or Bastion like other accounts. See [rbac.md](rbac.md).
 - **No workloads.** There is no function code, ML compute instance or cluster, model deployment or Foundry project. Notebook and VS Code features in Azure ML studio need a compute instance that you create. See [architecture.md](architecture.md#not-included).
-- **Service-to-service connections are limited.** Search to the Data Lake, Foundry and (on Standard) the Function App, Azure ML to the Data Lake, Foundry and Search, and (optionally) the Foundry account's document features to the Data Lake are configured. Others are not. See [architecture.md](architecture.md#service-to-service-connections).
+- **Service-to-service connections are limited.** Search to the Data Lake, Foundry and (on Standard) the Function App, Azure ML to the Data Lake, Foundry and Search are configured. Others are not. See [architecture.md](architecture.md#service-to-service-connections).
 - **Application Insights** accepts public ingestion.
 - **Custom Vision is a legacy service.** Its accounts keep key authentication on, because its API is used with keys.
 - **VM sign-in has no MFA.** Bastion VMs use a local username and password. See [accessing-the-environment.md](accessing-the-environment.md).
